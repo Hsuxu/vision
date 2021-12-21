@@ -158,7 +158,7 @@ void pre_calc_for_trilinear_interpolate(
               pc.pos5 = z_high * height * width + y_low * width + x_low;
               pc.pos6 = z_high * height * width + y_low * width + x_high;
               pc.pos7 = z_high * height * width + y_high * width + x_low;
-              pc.pos7 = z_high * height * width + y_high * width + x_high;
+              pc.pos8 = z_high * height * width + y_high * width + x_high;
               pc.w1 = w1;
               pc.w2 = w2;
               pc.w3 = w3;

@@ -164,7 +164,7 @@ void trilinear_interpolate_gradient(
     x_low = x_high = y_low = y_high = z_low = z_high = -1;
     return;
   }
-  if (z < = 0)
+  if (z <= 0)
     z = 0;
   if (y <= 0)
     y = 0;
@@ -309,7 +309,7 @@ void roi_align3d_backward_kernel_impl(
           int x_low, x_high, y_low, y_high, z_low, z_high;
 
           trilinear_interpolate_gradient(
-              depth
+              depth,
               height,
               width,
               z,
@@ -322,7 +322,7 @@ void roi_align3d_backward_kernel_impl(
               w5, 
               w6, 
               w7, 
-              w8
+              w8,
               x_low,
               x_high,
               y_low,
@@ -368,7 +368,6 @@ at::Tensor roi_align3d_forward_kernel(
     bool aligned) {
   TORCH_CHECK(input.device().is_cpu(), "input must be a CPU tensor");
   TORCH_CHECK(rois.device().is_cpu(), "rois must be a CPU tensor");
-  TORCH_CHECK(input.)
   TORCH_CHECK(rois.size(1) == 7, "rois must have shape as Tensor[K, 7]");
 
   at::TensorArg input_t{input, "input", 1}, rois_t{rois, "rois", 2};
@@ -378,7 +377,7 @@ at::Tensor roi_align3d_forward_kernel(
 
   auto num_rois = rois.size(0);
   auto channels = input.size(1);
-  auto depth = input.size(2)
+  auto depth = input.size(2);
   auto height = input.size(3);
   auto width = input.size(4);
 
@@ -443,7 +442,7 @@ at::Tensor roi_align3d_backward_kernel(
   // get stride values to ensure indexing into gradients is correct.
   int n_stride = grad.stride(0);
   int c_stride = grad.stride(1);
-  int d_stride = grad.stride(2)
+  int d_stride = grad.stride(2);
   int h_stride = grad.stride(3);
   int w_stride = grad.stride(4);
 
