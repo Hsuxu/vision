@@ -56,20 +56,22 @@ void pre_calc_for_trilinear_interpolate(
     int roi_bin_grid_w,
     std::vector<PreCalc<T>>& pre_calc) {
   int pre_calc_index = 0;
-  for (int pd = 0; pd < pooled_depth; pd++) {
-    for (int ph = 0; ph < pooled_height; ph++) {
-      for (int pw = 0; pw < pooled_width; pw++) {
-        for (int iz = 0; iz < roi_bin_grid_d; iz++) {
-          const T zz = roi_bin_grid_d + pd * bin_size_d +
-              static_cast<T>(iz + .5f) * bin_size_d /
-                  static_cast<T>(roi_bin_grid_d); // e.g., 0.5, 1.5
+  for (int pd = 0; pd < pooled_depth; pd++) 
+  {
+    for (int ph = 0; ph < pooled_height; ph++) 
+    {
+      for (int pw = 0; pw < pooled_width; pw++) 
+      {
+        for (int iz = 0; iz < roi_bin_grid_d; iz++)
+        {
+          const T zz = roi_start_d + pd * bin_size_d + static_cast<T>(iz + .5f) * bin_size_d /static_cast<T>(roi_bin_grid_d); // e.g., 0.5, 1.5
 
-          for (int iy = 0; iy < roi_bin_grid_h; iy++) {
-            const T yy = roi_start_h + ph * bin_size_h +
-                static_cast<T>(iy + .5f) * bin_size_h /
-                    static_cast<T>(roi_bin_grid_h); // e.g., 0.5, 1.5
+          for (int iy = 0; iy < roi_bin_grid_h; iy++) 
+          {
+            const T yy = roi_start_h + ph * bin_size_h + static_cast<T>(iy + .5f) * bin_size_h / static_cast<T>(roi_bin_grid_h); // e.g., 0.5, 1.5
 
-            for (int ix = 0; ix < roi_bin_grid_w; ix++) {
+            for (int ix = 0; ix < roi_bin_grid_w; ix++) 
+            {
               const T xx = roi_start_w + pw * bin_size_w +
                   static_cast<T>(ix + .5f) * bin_size_w /
                       static_cast<T>(roi_bin_grid_w);
@@ -78,8 +80,7 @@ void pre_calc_for_trilinear_interpolate(
               T y = yy;
               T z = zz;
               // deal with: inverse elements are out of feature map boundary
-              if (z < -1.0 || z > depth || y < -1.0 || y > height || x < -1.0 ||
-                  x > width) {
+              if (z < -1.0 || z > depth || y < -1.0 || y > height || x < -1.0 || x > width) {
                 // empty
                 PreCalc<T> pc;
                 pc.pos1 = 0;

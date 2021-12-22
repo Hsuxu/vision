@@ -57,24 +57,17 @@ void roi_align3d_forward_kernel_impl(
     T bin_size_w = static_cast<T>(roi_width) / static_cast<T>(pooled_width);
 
     // We use roi_bin_grid to sample the grid and mimic integral
-    int roi_bin_grid_z =
-        (sampling_ratio > 0) ? sampling_ratio : ceil(roi_depth / pooled_depth);
-    int roi_bin_grid_h = (sampling_ratio > 0)
-        ? sampling_ratio
-        : ceil(roi_height / pooled_height); // e.g., = 2
-    int roi_bin_grid_w =
-        (sampling_ratio > 0) ? sampling_ratio : ceil(roi_width / pooled_width);
+    int roi_bin_grid_z = (sampling_ratio > 0) ? sampling_ratio : ceil(roi_depth / pooled_depth);
+    int roi_bin_grid_h = (sampling_ratio > 0) ? sampling_ratio : ceil(roi_height / pooled_height); // e.g., = 2
+    int roi_bin_grid_w = (sampling_ratio > 0) ? sampling_ratio : ceil(roi_width / pooled_width);
 
     // We do average (integral) pooling inside a bin
     // When the grid is empty, output zeros.
-    const T count = std::max(
-        roi_bin_grid_z * roi_bin_grid_h * roi_bin_grid_w, 1); // e.g. = 4
+    const T count = std::max(roi_bin_grid_z * roi_bin_grid_h * roi_bin_grid_w, 1); // e.g. = 4
 
     // we want to precalculate indices and weights shared by all chanels,
     // this is the key point of optimization
-    std::vector<detail::PreCalc<T>> pre_calc(
-        roi_bin_grid_z * roi_bin_grid_h * roi_bin_grid_w * pooled_depth *
-        pooled_width * pooled_height);
+    std::vector<detail::PreCalc<T>> pre_calc(roi_bin_grid_z * roi_bin_grid_h * roi_bin_grid_w * pooled_depth * pooled_width * pooled_height);
     detail::pre_calc_for_trilinear_interpolate(
         depth,
         height,
@@ -95,15 +88,13 @@ void roi_align3d_forward_kernel_impl(
 
     for (int c = 0; c < channels; c++) {
       int index_n_c = index_n + c * pooled_width * pooled_height * pooled_depth;
-      const T* offset_input =
-          input + (roi_batch_ind * channels + c) * depth * height * width;
+      const T* offset_input = input + (roi_batch_ind * channels + c) * depth * height * width;
       int pre_calc_index = 0;
 
       for (int pd = 0; pd < pooled_depth; pd++) {
         for (int ph = 0; ph < pooled_height; ph++) {
           for (int pw = 0; pw < pooled_width; pw++) {
-            int index = index_n_c + pd * pooled_height * pooled_height +
-                ph * pooled_width + pw;
+            int index = index_n_c + pd * pooled_height * pooled_width + ph * pooled_width + pw;
 
             T output_val = 0.;
             for (int iz = 0; iz < roi_bin_grid_z; iz++) {

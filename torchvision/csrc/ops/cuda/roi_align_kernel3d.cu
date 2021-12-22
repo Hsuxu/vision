@@ -73,9 +73,9 @@ __device__ T trilinear_interpolate(
   T v3 = input[z_low * height * width +y_high * width + x_low];
   T v4 = input[z_low * height * width +y_high * width + x_high];
   T v5 = input[z_high * height * width + y_low * width + x_low];
-  T v6 = input[z_high * height * width +y_low * width + x_high];
-  T v7 = input[z_high * height * width +y_high * width + x_low];
-  T v8 = input[z_high * height * width +y_high * width + x_high];
+  T v6 = input[z_high * height * width + y_low * width + x_high];
+  T v7 = input[z_high * height * width + y_high * width + x_low];
+  T v8 = input[z_high * height * width + y_high * width + x_high];
 
   T w1 = hz * hy * hx, w2 = hz * hy * lx, w3 = hz * ly * hx, w4 = hz * ly * lx;
   T w5 = lz * hy * hx, w6 = lz * hy * lx, w7 = lz * ly * hx, w8 = lz * ly * lx;
@@ -106,8 +106,8 @@ __global__ void roi_align3d_forward_kernel_impl(
     int pw = index % pooled_width;
     int ph = (index / pooled_width) % pooled_height;
     int pd = (index / pooled_height/pooled_width) % pooled_depth;
-    int c = (index / pooled_width / pooled_height/pooled_depth) % channels;
-    int n = index / pooled_width / pooled_height /pooled_depth/ channels;
+    int c = (index / pooled_width / pooled_height / pooled_depth) % channels;
+    int n = index / pooled_width / pooled_height / pooled_depth/ channels;
 
     const T* offset_rois = rois + n * 7;
     int roi_batch_ind = offset_rois[0];
@@ -154,7 +154,7 @@ __global__ void roi_align3d_forward_kernel_impl(
     T output_val = 0.;
     for (int iz = 0; iz < roi_bin_grid_d; iz++)
     {
-      const T y = roi_start_d + pd * bin_size_d +
+      const T z = roi_start_d + pd * bin_size_d +
             static_cast<T>(iz + .5f) * bin_size_d /
                 static_cast<T>(roi_bin_grid_d);
       for (int iy = 0; iy < roi_bin_grid_h; iy++) // e.g., iy = 0, 1
@@ -168,13 +168,12 @@ __global__ void roi_align3d_forward_kernel_impl(
               static_cast<T>(ix + .5f) * bin_size_w /
                   static_cast<T>(roi_bin_grid_w);
 
-          T val = trilinear_interpolate(offset_input, depth, height, width,z, y, x, index);
+          T val = trilinear_interpolate(offset_input, depth, height, width, z, y, x, index);
           output_val += val;
         } // ix
       } //iy
-  } // iz
+    } // iz
     output_val /= count;
-
     output[index] = output_val;
   }
 }
@@ -388,7 +387,7 @@ __global__ void roi_align3d_backward_kernel_impl(
 
           if (x_low >= 0 && x_high >= 0 && y_low >= 0 && y_high >= 0 && z_low >= 0 && z_high >= 0) {
             atomicAdd(
-                offset_grad_input + z_low * height * width +  y_low * width + x_low, static_cast<T>(g1));
+                offset_grad_input + z_low * height * width + y_low * width + x_low, static_cast<T>(g1));
             atomicAdd(
                 offset_grad_input + z_low * height * width + y_low * width + x_high, static_cast<T>(g2));
             atomicAdd(
@@ -456,7 +455,7 @@ at::Tensor roi_align3d_forward_kernel(
   auto input_ = input.contiguous(), rois_ = rois.contiguous();
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
       input.scalar_type(), "roi_align3d_forward_kernel", [&] {
-        roi_align_forward_kernel_impl<scalar_t><<<grid, block, 0, stream>>>(
+        roi_align3d_forward_kernel_impl<scalar_t><<<grid, block, 0, stream>>>(
             output_size,
             input_.data_ptr<scalar_t>(),
             spatial_scale,
@@ -526,7 +525,7 @@ at::Tensor roi_align3d_backward_kernel(
   auto rois_ = rois.contiguous();
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
       grad.scalar_type(), "roi_align3d_backward_kernel", [&] {
-        roi_align_backward_kernel_impl<scalar_t><<<grid, block, 0, stream>>>(
+        roi_align3d_backward_kernel_impl<scalar_t><<<grid, block, 0, stream>>>(
             grad.numel(),
             grad.data_ptr<scalar_t>(),
             spatial_scale,
