@@ -34,3 +34,15 @@ def check_roi_boxes_shape(boxes: Tensor):
     else:
         assert False, 'boxes is expected to be a Tensor[L, 5] or a List[Tensor[K, 4]]'
     return
+
+
+def check_roi_boxes3d_shape(boxes: Tensor):
+    if isinstance(boxes, (list, tuple)):
+        for _tensor in boxes:
+            assert _tensor.size(1) == 6, \
+                'The shape of the tensor in the boxes list is not correct as List[Tensor[L, 6]]'
+    elif isinstance(boxes, torch.Tensor):
+        assert boxes.size(1) == 7, 'The boxes tensor shape is not correct as Tensor[K, 7]'
+    else:
+        assert False, 'boxes is expected to be a Tensor[L, 7] or a List[Tensor[K, 6]]'
+    return
