@@ -29,6 +29,33 @@ at::Tensor roi_align(
       aligned);
 }
 
+at::Tensor roi_align3d(
+    const at::Tensor& input, // Input feature map.
+    const at::Tensor& rois, // List of ROIs to pool over.
+    double spatial_scale, // The scale of the image features. ROIs will be scaled to this.
+    int64_t pooled_depth, // The depth of the pooled feature map
+    int64_t pooled_height, // The height of the pooled feature map.
+    int64_t pooled_width, // The width of the pooled feature
+    int64_t sampling_ratio, // The number of points to sample in each bin
+    bool aligned) // The flag for pixel shift
+// along each axis.
+{
+  //C10_LOG_API_USAGE_ONCE("torchvision.csrc.ops.roi_align.roi_align3d");
+  static auto op = c10::Dispatcher::singleton()
+                       .findSchemaOrThrow("torchvision::roi_align3d", "")
+                       .typed<decltype(roi_align3d)>();
+  return op.call(
+      input,
+      rois,
+      spatial_scale,
+      pooled_depth,
+      pooled_height,
+      pooled_width,
+      sampling_ratio,
+      aligned);
+}
+
+
 namespace detail {
 
 at::Tensor _roi_align_backward(
@@ -61,6 +88,41 @@ at::Tensor _roi_align_backward(
       aligned);
 }
 
+
+at::Tensor _roi_align3d_backward(
+    const at::Tensor& grad,
+    const at::Tensor& rois,
+    double spatial_scale,
+    int64_t pooled_depth,
+    int64_t pooled_height,
+    int64_t pooled_width,
+    int64_t batch_size,
+    int64_t channels,
+    int64_t depth,
+    int64_t height,
+    int64_t width,
+    int64_t sampling_ratio,
+    bool aligned) {
+  static auto op =
+      c10::Dispatcher::singleton()
+          .findSchemaOrThrow("torchvision::_roi_align3d_backward", "")
+          .typed<decltype(_roi_align3d_backward)>();
+  return op.call(
+      grad,
+      rois,
+      spatial_scale,
+      pooled_depth,
+      pooled_height,
+      pooled_width,
+      batch_size,
+      channels,
+      depth,
+      height,
+      width,
+      sampling_ratio,
+      aligned);
+}
+
 } // namespace detail
 
 TORCH_LIBRARY_FRAGMENT(torchvision, m) {
@@ -68,6 +130,10 @@ TORCH_LIBRARY_FRAGMENT(torchvision, m) {
       "torchvision::roi_align(Tensor input, Tensor rois, float spatial_scale, int pooled_height, int pooled_width, int sampling_ratio, bool aligned) -> Tensor"));
   m.def(TORCH_SELECTIVE_SCHEMA(
       "torchvision::_roi_align_backward(Tensor grad, Tensor rois, float spatial_scale, int pooled_height, int pooled_width, int batch_size, int channels, int height, int width, int sampling_ratio, bool aligned) -> Tensor"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "torchvision::roi_align3d(Tensor input, Tensor rois, float spatial_scale, int pooled_depth, int pooled_height, int pooled_width, int sampling_ratio, bool aligned) -> Tensor"));
+  m.def(TORCH_SELECTIVE_SCHEMA(
+      "torchvision::_roi_align_backward3d(Tensor grad, Tensor rois, float spatial_scale, int pooled_depth, int pooled_height, int pooled_width, int batch_size, int channels,int depth, int height, int width, int sampling_ratio, bool aligned) -> Tensor"));
 }
 
 } // namespace ops
