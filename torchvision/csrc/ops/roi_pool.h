@@ -13,6 +13,14 @@ VISION_API std::tuple<at::Tensor, at::Tensor> roi_pool(
     int64_t pooled_height,
     int64_t pooled_width);
 
+VISION_API std::tuple<at::Tensor, at::Tensor> roi_pool3d(
+    const at::Tensor& input,
+    const at::Tensor& rois,
+    double spatial_scale,
+    int64_t pooled_depth,
+    int64_t pooled_height,
+    int64_t pooled_width);
+
 namespace detail {
 
 at::Tensor _roi_pool_backward(
@@ -24,6 +32,21 @@ at::Tensor _roi_pool_backward(
     int64_t pooled_width,
     int64_t batch_size,
     int64_t channels,
+    int64_t height,
+    int64_t width);
+
+
+at::Tensor _roi_pool3d_backward(
+    const at::Tensor& grad,
+    const at::Tensor& rois,
+    const at::Tensor& argmax,
+    double spatial_scale,
+    int64_t pooled_depth,
+    int64_t pooled_height,
+    int64_t pooled_width,
+    int64_t batch_size,
+    int64_t channels,
+    int64_t depth,
     int64_t height,
     int64_t width);
 
