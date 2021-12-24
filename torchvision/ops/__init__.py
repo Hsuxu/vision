@@ -9,6 +9,7 @@ from .poolers import MultiScaleRoIAlign
 from .feature_pyramid_network import FeaturePyramidNetwork
 from .focal_loss import sigmoid_focal_loss
 from .roi_align3d import roi_align3d, RoIAlign3d
+from .roi_pool3d import roi_pool3d, RoIPool3d
 
 from ._register_onnx_ops import _register_custom_op
 
@@ -22,5 +23,6 @@ __all__ = [
     'RoIPool', 'ps_roi_align', 'PSRoIAlign', 'ps_roi_pool',
     'PSRoIPool', 'MultiScaleRoIAlign', 'FeaturePyramidNetwork',
     'sigmoid_focal_loss',
-    'roi_align3d', 'RoIAlign3d',
+    'roi_align3d', 'RoIAlign3d', 'roi_pool3d', 'RoIPool3d'
+
 ]
