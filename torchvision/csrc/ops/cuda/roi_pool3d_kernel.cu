@@ -52,7 +52,7 @@ __global__ void roi_pool3d_forward_kernel_impl(
     T bin_size_h = static_cast<T>(roi_height) / static_cast<T>(pooled_height);
     T bin_size_w = static_cast<T>(roi_width) / static_cast<T>(pooled_width);
 
-    int hstart = static_cast<int>(floor(static_cast<T>(pd) * bin_size_d));
+    int dstart = static_cast<int>(floor(static_cast<T>(pd) * bin_size_d));
     int hstart = static_cast<int>(floor(static_cast<T>(ph) * bin_size_h));
     int wstart = static_cast<int>(floor(static_cast<T>(pw) * bin_size_w));
     int dend = static_cast<int>(ceil(static_cast<T>(pd + 1) * bin_size_d));
@@ -73,7 +73,7 @@ __global__ void roi_pool3d_forward_kernel_impl(
     // If nothing is pooled, argmax = -1 causes nothing to be backprop'd
     int maxidx = -1;
     const T* offset_input = input + (roi_batch_ind * channels + c) * height * width * depth;
-    for (int d = dstart; h < dend; ++d) {
+    for (int d = dstart; d < dend; ++d) {
       for (int h = hstart; h < hend; ++h) {
         for (int w = wstart; w < wend; ++w) {
           int input_index = d * width *height + h * width + w;
@@ -179,7 +179,7 @@ std::tuple<at::Tensor, at::Tensor> roi_pool3d_forward_kernel(
   auto input_ = input.contiguous(), rois_ = rois.contiguous();
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
       input.scalar_type(), "roi_pool3d_forward_kernel", [&] {
-        roi_pool_forward_kernel_impl<scalar_t><<<grid, block, 0, stream>>>(
+        roi_pool3d_forward_kernel_impl<scalar_t><<<grid, block, 0, stream>>>(
             output_size,
             input_.data_ptr<scalar_t>(),
             spatial_scale,
@@ -242,7 +242,7 @@ at::Tensor roi_pool3d_backward_kernel(
 
   int n_stride = grad.stride(0);
   int c_stride = grad.stride(1);
-  int d_stride = grad.stride(2)
+  int d_stride = grad.stride(2);
   int h_stride = grad.stride(3);
   int w_stride = grad.stride(4);
 
