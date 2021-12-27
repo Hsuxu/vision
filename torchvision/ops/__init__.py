@@ -1,4 +1,4 @@
-from .boxes import nms, batched_nms, remove_small_boxes, clip_boxes_to_image, box_area, box_iou, generalized_box_iou
+from .boxes import nms,nms3d, batched_nms,batched_nms3d, remove_small_boxes, clip_boxes_to_image, box_area, box_iou, generalized_box_iou
 from .boxes import box_convert
 from .deform_conv import deform_conv2d, DeformConv2d
 from .roi_align import roi_align, RoIAlign
@@ -23,6 +23,6 @@ __all__ = [
     'RoIPool', 'ps_roi_align', 'PSRoIAlign', 'ps_roi_pool',
     'PSRoIPool', 'MultiScaleRoIAlign', 'FeaturePyramidNetwork',
     'sigmoid_focal_loss',
-    'roi_align3d', 'RoIAlign3d', 'roi_pool3d', 'RoIPool3d'
-
+    'roi_align3d', 'RoIAlign3d', 'roi_pool3d', 'RoIPool3d',
+    'nms3d','batched_nms3d',
 ]
