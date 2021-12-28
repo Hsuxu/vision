@@ -79,6 +79,25 @@ By default, GPU support is built if CUDA is found and ``torch.cuda.is_available(
 It's possible to force building GPU support by setting ``FORCE_CUDA=1`` environment variable,
 which is useful when building a docker image.
 
+Supported Methods
+=================
+
++---------------+---------------+---------------+
+| ``Methods``   | ``CPU``       | ``CUDA``      |
++===============+===============+===============+
+|  RoI Pooling  | 2/3D          |2/3D           |
++---------------+---------------+---------------|
+|  RoI Align    | 2/3D          |2/3D           |
++---------------+---------------+---------------|
+|  NMS          | 2/3D          |2/3D           |
++---------------+---------------+---------------|
+| PS RoI Pooling| 2D            |2D             |
++---------------+---------------+---------------|
+| PS RoI Align  | 2D            |2D             |
++---------------+---------------+---------------|
+| Deform Conv   | 2D            |2D             |
++---------------+---------------+---------------|
+
 Image Backend
 =============
 Torchvision currently supports the following image backends:
