@@ -18,37 +18,37 @@ Installation
 ============
 
 We recommend Anaconda as Python package management system. Please refer to `pytorch.org <https://pytorch.org/>`_
-for the detail of PyTorch (``torch``) installation. The following is the corresponding ``torchvision`` versions and
+for the detail of PyTorch (torch) installation. The following is the corresponding torchvision versions and
 supported Python versions.
 
 +--------------------------+--------------------------+---------------------------------+
-| ``torch``                | ``torchvision``          | ``python``                      |
+| torch                | torchvision          | python                      |
 +==========================+==========================+=================================+
-| ``master`` / ``nightly`` | ``master`` / ``nightly`` | ``>=3.6``                       |
+| master / nightly | master / nightly | >=3.6                       |
 +--------------------------+--------------------------+---------------------------------+
-| ``1.7.1``                | ``0.8.2``                | ``>=3.6``                       |
+| 1.7.1                | 0.8.2                | >=3.6                       |
 +--------------------------+--------------------------+---------------------------------+
-| ``1.7.0``                | ``0.8.1``                | ``>=3.6``                       |
+| 1.7.0                | 0.8.1                | >=3.6                       |
 +--------------------------+--------------------------+---------------------------------+
-| ``1.7.0``                | ``0.8.0``                | ``>=3.6``                       |
+| 1.7.0                | 0.8.0                | >=3.6                       |
 +--------------------------+--------------------------+---------------------------------+
-| ``1.6.0``                | ``0.7.0``                | ``>=3.6``                       |
+| 1.6.0                | 0.7.0                | >=3.6                       |
 +--------------------------+--------------------------+---------------------------------+
-| ``1.5.1``                | ``0.6.1``                | ``>=3.5``                       |
+| 1.5.1                | 0.6.1                | >=3.5                       |
 +--------------------------+--------------------------+---------------------------------+
-| ``1.5.0``                | ``0.6.0``                | ``>=3.5``                       |
+| 1.5.0                | 0.6.0                | >=3.5                       |
 +--------------------------+--------------------------+---------------------------------+
-| ``1.4.0``                | ``0.5.0``                | ``==2.7``, ``>=3.5``, ``<=3.8`` |
+| 1.4.0                | 0.5.0                | ==2.7, >=3.5, <=3.8 |
 +--------------------------+--------------------------+---------------------------------+
-| ``1.3.1``                | ``0.4.2``                | ``==2.7``, ``>=3.5``, ``<=3.7`` |
+| 1.3.1                | 0.4.2                | ==2.7, >=3.5, <=3.7 |
 +--------------------------+--------------------------+---------------------------------+
-| ``1.3.0``                | ``0.4.1``                | ``==2.7``, ``>=3.5``, ``<=3.7`` |
+| 1.3.0                | 0.4.1                | ==2.7, >=3.5, <=3.7 |
 +--------------------------+--------------------------+---------------------------------+
-| ``1.2.0``                | ``0.4.0``                | ``==2.7``, ``>=3.5``, ``<=3.7`` |
+| 1.2.0                | 0.4.0                | ==2.7, >=3.5, <=3.7 |
 +--------------------------+--------------------------+---------------------------------+
-| ``1.1.0``                | ``0.3.0``                | ``==2.7``, ``>=3.5``, ``<=3.7`` |
+| 1.1.0                | 0.3.0                | ==2.7, >=3.5, <=3.7 |
 +--------------------------+--------------------------+---------------------------------+
-| ``<=1.0.1``              | ``0.2.2``                | ``==2.7``, ``>=3.5``, ``<=3.7`` |
+| <=1.0.1              | 0.2.2                | ==2.7, >=3.5, <=3.7 |
 +--------------------------+--------------------------+---------------------------------+
 
 Anaconda:
@@ -75,28 +75,27 @@ From source:
 In case building TorchVision from source fails, install the nightly version of PyTorch following 
 the linked guide on the  `contributing page <https://github.com/pytorch/vision/blob/master/CONTRIBUTING.md#development-installation>`_ and retry the install.
 
-By default, GPU support is built if CUDA is found and ``torch.cuda.is_available()`` is true.
-It's possible to force building GPU support by setting ``FORCE_CUDA=1`` environment variable,
+By default, GPU support is built if CUDA is found and torch.cuda.is_available() is true.
+It's possible to force building GPU support by setting FORCE_CUDA=1 environment variable,
 which is useful when building a docker image.
+
 
 Supported Methods
 =================
-
-+---------------+---------------+---------------+
-| ``Methods``   | ``CPU``       | ``CUDA``      |
-+===============+===============+===============+
-|  RoI Pooling  | 2/3D          |2/3D           |
-+---------------+---------------+---------------|
-|  RoI Align    | 2/3D          |2/3D           |
-+---------------+---------------+---------------|
-|  NMS          | 2/3D          |2/3D           |
-+---------------+---------------+---------------|
-| PS RoI Pooling| 2D            |2D             |
-+---------------+---------------+---------------|
-| PS RoI Align  | 2D            |2D             |
-+---------------+---------------+---------------|
-| Deform Conv   | 2D            |2D             |
-+---------------+---------------+---------------|
+  
++--------------+------+------+
+| Methods      | CPU  | CUDA |
++==============+======+======+
+| RoI Pooling  | 2/3D | 2/3D |
++--------------+------+------+
+| RoI Align    | 2/3D | 2/3D |
++--------------+------+------+
+| NMS          | 2/3D | 2/3D |
++--------------+------+------+
+| PS RoI Align | 2D   | 2D   |
++--------------+------+------+
+| Deform Conv  | 2D   | 2D   |
++--------------+------+------+
 
 Image Backend
 =============
@@ -112,8 +111,8 @@ Torchvision currently supports the following image backends:
 
 * `libjpeg`_ - can be installed via conda :code:`conda install jpeg` or any of the package managers for debian-based and RHEL-based Linux distributions. `libjpeg-turbo`_ can be used as well.
 
-**Notes:** ``libpng`` and ``libjpeg`` must be available at compilation time in order to be available. Make sure that it is available on the standard library locations,
-otherwise, add the include and library paths in the environment variables ``TORCHVISION_INCLUDE`` and ``TORCHVISION_LIBRARY``, respectively.
+**Notes:** libpng and libjpeg must be available at compilation time in order to be available. Make sure that it is available on the standard library locations,
+otherwise, add the include and library paths in the environment variables TORCHVISION_INCLUDE and TORCHVISION_LIBRARY, respectively.
 
 .. _libpng : http://www.libpng.org/pub/png/libpng.html
 .. _Pillow : https://python-pillow.org/
@@ -137,17 +136,17 @@ Installation From source:
     make
     make install
 
-Once installed, the library can be accessed in cmake (after properly configuring ``CMAKE_PREFIX_PATH``) via the :code:`TorchVision::TorchVision` target:
+Once installed, the library can be accessed in cmake (after properly configuring CMAKE_PREFIX_PATH) via the :code:`TorchVision::TorchVision` target:
 
 .. code:: rest
 
 	find_package(TorchVision REQUIRED)
 	target_link_libraries(my-target PUBLIC TorchVision::TorchVision)
 
-The ``TorchVision`` package will also automatically look for the ``Torch`` package and add it as a dependency to ``my-target``,
-so make sure that it is also available to cmake via the ``CMAKE_PREFIX_PATH``.
+The TorchVision package will also automatically look for the Torch package and add it as a dependency to my-target,
+so make sure that it is also available to cmake via the CMAKE_PREFIX_PATH.
 
-For an example setup, take a look at ``examples/cpp/hello_world``.
+For an example setup, take a look at examples/cpp/hello_world.
 
 TorchVision Operators
 ---------------------
