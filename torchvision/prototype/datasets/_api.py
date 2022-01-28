@@ -23,8 +23,7 @@ for name, obj in _builtin.__dict__.items():
         register(obj())
 
 
-# This is exposed as 'list', but we avoid that here to not shadow the built-in 'list'
-def _list() -> List[str]:
+def list_datasets() -> List[str]:
     return sorted(DATASETS.keys())
 
 
@@ -39,7 +38,7 @@ def find(name: str) -> Dataset:
                 word=name,
                 possibilities=DATASETS.keys(),
                 alternative_hint=lambda _: (
-                    "You can use torchvision.datasets.list() to get a list of all available datasets."
+                    "You can use torchvision.datasets.list_datasets() to get a list of all available datasets."
                 ),
             )
         ) from error
@@ -62,7 +61,6 @@ def load(
     *,
     decoder: Optional[Callable[[io.IOBase], torch.Tensor]] = DEFAULT_DECODER,  # type: ignore[assignment]
     skip_integrity_check: bool = False,
-    split: str = "train",
     **options: Any,
 ) -> IterDataPipe[Dict[str, Any]]:
     dataset = find(name)
@@ -70,7 +68,7 @@ def load(
     if decoder is DEFAULT_DECODER:
         decoder = DEFAULT_DECODER_MAP.get(dataset.info.type)
 
-    config = dataset.info.make_config(split=split, **options)
+    config = dataset.info.make_config(**options)
     root = os.path.join(home(), dataset.name)
 
     return dataset.load(root, config=config, decoder=decoder, skip_integrity_check=skip_integrity_check)
