@@ -38,11 +38,11 @@ __global__ void roi_pool3d_forward_kernel_impl(
     const T* offset_rois = rois + n * 7;
     int roi_batch_ind = offset_rois[0];
     int roi_start_d = round(offset_rois[1] * spatial_scale);
-    int roi_start_w = round(offset_rois[2] * spatial_scale);
-    int roi_start_h = round(offset_rois[3] * spatial_scale);
+    int roi_start_h = round(offset_rois[2] * spatial_scale);
+    int roi_start_w = round(offset_rois[3] * spatial_scale);
     int roi_end_d = round(offset_rois[4] * spatial_scale);
-    int roi_end_w = round(offset_rois[5] * spatial_scale);
-    int roi_end_h = round(offset_rois[6] * spatial_scale);
+    int roi_end_h = round(offset_rois[5] * spatial_scale);
+    int roi_end_w = round(offset_rois[6] * spatial_scale);
 
     // Force malformed ROIs to be 1x1
     int roi_depth = max(roi_end_d - roi_start_d + 1, 1);
