@@ -32,11 +32,11 @@ void roi_pool3d_forward_kernel_impl(
     const T* offset_rois = rois + n * 7;
     int roi_batch_ind = offset_rois[0];
     int roi_start_d = round(offset_rois[1] * spatial_scale);
-    int roi_start_w = round(offset_rois[2] * spatial_scale);
-    int roi_start_h = round(offset_rois[3] * spatial_scale);
+    int roi_start_h = round(offset_rois[2] * spatial_scale);
+    int roi_start_w = round(offset_rois[3] * spatial_scale);
     int roi_end_d = round(offset_rois[4] * spatial_scale);
-    int roi_end_w = round(offset_rois[5] * spatial_scale);
-    int roi_end_h = round(offset_rois[6] * spatial_scale);
+    int roi_end_h = round(offset_rois[5] * spatial_scale);
+    int roi_end_w = round(offset_rois[6] * spatial_scale);
 
     // Force malformed ROIs to be 1x1
     int roi_depth = std::max(roi_end_d - roi_start_d + 1, 1);
@@ -52,9 +52,12 @@ void roi_pool3d_forward_kernel_impl(
           int dstart = static_cast<int>(floor(static_cast<T>(pd) * bin_size_d));
           int hstart = static_cast<int>(floor(static_cast<T>(ph) * bin_size_h));
           int wstart = static_cast<int>(floor(static_cast<T>(pw) * bin_size_w));
-          int dend = static_cast<int>(ceil(static_cast<T>(pd + 1) * bin_size_d));
-          int hend = static_cast<int>(ceil(static_cast<T>(ph + 1) * bin_size_h));
-          int wend = static_cast<int>(ceil(static_cast<T>(pw + 1) * bin_size_w));
+          int dend =
+              static_cast<int>(ceil(static_cast<T>(pd + 1) * bin_size_d));
+          int hend =
+              static_cast<int>(ceil(static_cast<T>(ph + 1) * bin_size_h));
+          int wend =
+              static_cast<int>(ceil(static_cast<T>(pw + 1) * bin_size_w));
 
           // Add roi offsets and clip to input boundaries
           dstart = std::min(std::max(dstart + roi_start_d, 0), depth);
@@ -63,7 +66,8 @@ void roi_pool3d_forward_kernel_impl(
           hend = std::min(std::max(hend + roi_start_h, 0), height);
           wstart = std::min(std::max(wstart + roi_start_w, 0), width);
           wend = std::min(std::max(wend + roi_start_w, 0), width);
-          bool is_empty = (hend <= hstart) || (wend <= wstart) || dend <= dstart;
+          bool is_empty =
+              (hend <= hstart) || (wend <= wstart) || dend <= dstart;
 
           for (int c = 0; c < channels; ++c) {
             // Define an empty pooling region to be zero
@@ -86,13 +90,16 @@ void roi_pool3d_forward_kernel_impl(
               }
             }
             int index =
-                (((n * channels + c) * pooled_depth + pd )* pooled_height + ph) * pooled_width + pw;
+                (((n * channels + c) * pooled_depth + pd) * pooled_height +
+                 ph) *
+                    pooled_width +
+                pw;
             output[index] = maxval;
             argmax_data[index] = maxidx;
           } // channels
         } // pooled_width
       } // pooled_height
-    } //pooled_depth
+    } // pooled_depth
   } // num_rois
 }
 
@@ -120,26 +127,27 @@ void roi_pool3d_backward_kernel_impl(
     int roi_batch_ind = offset_rois[0];
 
     for (int c = 0; c < channels; ++c) {
-      T* grad_input_offset =
-          grad_input + ((roi_batch_ind * channels + c) * depth * height * width);
-      const int* argmax_data_offset =
-          argmax_data + (n * channels + c) * pooled_depth * pooled_height * pooled_width;
+      T* grad_input_offset = grad_input +
+          ((roi_batch_ind * channels + c) * depth * height * width);
+      const int* argmax_data_offset = argmax_data +
+          (n * channels + c) * pooled_depth * pooled_height * pooled_width;
 
       for (int pd = 0; pd < pooled_depth; ++pd) {
         for (int ph = 0; ph < pooled_height; ++ph) {
           for (int pw = 0; pw < pooled_width; ++pw) {
             int output_offset = n * n_stride + c * c_stride;
-            int argmax = argmax_data_offset[pd * pooled_height * pooled_width + ph * pooled_width + pw];
+            int argmax = argmax_data_offset
+                [pd * pooled_height * pooled_width + ph * pooled_width + pw];
 
             if (argmax != -1) {
               add(grad_input_offset + argmax,
-                  static_cast<T>(
-                      grad_output
-                          [output_offset + pd * d_stride + ph * h_stride + pw * w_stride]));
+                  static_cast<T>(grad_output
+                                     [output_offset + pd * d_stride +
+                                      ph * h_stride + pw * w_stride]));
             }
           } // pooled_width
         } // pooled_height
-      } //pooled_depth
+      } // pooled_depth
     } // channels
   } // num_rois
 }
@@ -166,7 +174,8 @@ std::tuple<at::Tensor, at::Tensor> roi_pool3d_forward_kernel(
   int width = input.size(4);
 
   at::Tensor output = at::zeros(
-      {num_rois, channels, pooled_depth, pooled_height, pooled_width}, input.options());
+      {num_rois, channels, pooled_depth, pooled_height, pooled_width},
+      input.options());
   at::Tensor argmax = at::zeros(
       {num_rois, channels, pooled_depth, pooled_height, pooled_width},
       input.options().dtype(at::kInt));

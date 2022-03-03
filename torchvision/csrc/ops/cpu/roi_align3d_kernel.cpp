@@ -35,12 +35,13 @@ void roi_align3d_forward_kernel_impl(
 
     // Do not using rounding; this implementation detail is critical
     T offset = aligned ? (T)0.5 : (T)0.0;
+    // change order to D,H,W
     T roi_start_z = offset_rois[1] * spatial_scale - offset;
-    T roi_start_w = offset_rois[2] * spatial_scale - offset;
-    T roi_start_h = offset_rois[3] * spatial_scale - offset;
+    T roi_start_h = offset_rois[2] * spatial_scale - offset;
+    T roi_start_w = offset_rois[3] * spatial_scale - offset;
     T roi_end_z = offset_rois[4] * spatial_scale - offset;
-    T roi_end_w = offset_rois[5] * spatial_scale - offset;
-    T roi_end_h = offset_rois[6] * spatial_scale - offset;
+    T roi_end_h = offset_rois[5] * spatial_scale - offset;
+    T roi_end_w = offset_rois[6] * spatial_scale - offset;
 
     T roi_depth = roi_end_z - roi_start_z;
     T roi_width = roi_end_w - roi_start_w;
@@ -57,17 +58,24 @@ void roi_align3d_forward_kernel_impl(
     T bin_size_w = static_cast<T>(roi_width) / static_cast<T>(pooled_width);
 
     // We use roi_bin_grid to sample the grid and mimic integral
-    int roi_bin_grid_z = (sampling_ratio > 0) ? sampling_ratio : ceil(roi_depth / pooled_depth);
-    int roi_bin_grid_h = (sampling_ratio > 0) ? sampling_ratio : ceil(roi_height / pooled_height); // e.g., = 2
-    int roi_bin_grid_w = (sampling_ratio > 0) ? sampling_ratio : ceil(roi_width / pooled_width);
+    int roi_bin_grid_z =
+        (sampling_ratio > 0) ? sampling_ratio : ceil(roi_depth / pooled_depth);
+    int roi_bin_grid_h = (sampling_ratio > 0)
+        ? sampling_ratio
+        : ceil(roi_height / pooled_height); // e.g., = 2
+    int roi_bin_grid_w =
+        (sampling_ratio > 0) ? sampling_ratio : ceil(roi_width / pooled_width);
 
     // We do average (integral) pooling inside a bin
     // When the grid is empty, output zeros.
-    const T count = std::max(roi_bin_grid_z * roi_bin_grid_h * roi_bin_grid_w, 1); // e.g. = 4
+    const T count = std::max(
+        roi_bin_grid_z * roi_bin_grid_h * roi_bin_grid_w, 1); // e.g. = 4
 
     // we want to precalculate indices and weights shared by all chanels,
     // this is the key point of optimization
-    std::vector<detail::PreCalc<T>> pre_calc(roi_bin_grid_z * roi_bin_grid_h * roi_bin_grid_w * pooled_depth * pooled_width * pooled_height);
+    std::vector<detail::PreCalc<T>> pre_calc(
+        roi_bin_grid_z * roi_bin_grid_h * roi_bin_grid_w * pooled_depth *
+        pooled_width * pooled_height);
     detail::pre_calc_for_trilinear_interpolate(
         depth,
         height,
@@ -88,13 +96,15 @@ void roi_align3d_forward_kernel_impl(
 
     for (int c = 0; c < channels; c++) {
       int index_n_c = index_n + c * pooled_width * pooled_height * pooled_depth;
-      const T* offset_input = input + (roi_batch_ind * channels + c) * depth * height * width;
+      const T* offset_input =
+          input + (roi_batch_ind * channels + c) * depth * height * width;
       int pre_calc_index = 0;
 
       for (int pd = 0; pd < pooled_depth; pd++) {
         for (int ph = 0; ph < pooled_height; ph++) {
           for (int pw = 0; pw < pooled_width; pw++) {
-            int index = index_n_c + pd * pooled_height * pooled_width + ph * pooled_width + pw;
+            int index = index_n_c + pd * pooled_height * pooled_width +
+                ph * pooled_width + pw;
 
             T output_val = 0.;
             for (int iz = 0; iz < roi_bin_grid_z; iz++) {
@@ -148,7 +158,8 @@ void trilinear_interpolate_gradient(
     int& z_high,
     int index /* index for debug only*/) {
   // deal with cases that inverse elements are out of feature map boundary
-  if (z < -1.0 || z > depth || y < -1.0 || y > height || x < -1.0 || x > width) {
+  if (z < -1.0 || z > depth || y < -1.0 || y > height || x < -1.0 ||
+      x > width) {
     // empty
     w1 = w2 = w3 = w4 = 0.;
     w5 = w6 = w7 = w8 = 0.;
@@ -243,11 +254,11 @@ void roi_align3d_backward_kernel_impl(
     // Do not using rounding; this implementation detail is critical
     T offset = aligned ? (T)0.5 : (T)0.0;
     T roi_start_d = offset_rois[1] * spatial_scale - offset;
-    T roi_start_w = offset_rois[2] * spatial_scale - offset;
-    T roi_start_h = offset_rois[3] * spatial_scale - offset;
+    T roi_start_h = offset_rois[2] * spatial_scale - offset;
+    T roi_start_w = offset_rois[3] * spatial_scale - offset;
     T roi_end_d = offset_rois[4] * spatial_scale - offset;
-    T roi_end_w = offset_rois[5] * spatial_scale - offset;
-    T roi_end_h = offset_rois[6] * spatial_scale - offset;
+    T roi_end_h = offset_rois[5] * spatial_scale - offset;
+    T roi_end_w = offset_rois[6] * spatial_scale - offset;
 
     T roi_depth = roi_end_d - roi_start_d;
     T roi_width = roi_end_w - roi_start_w;
@@ -281,12 +292,13 @@ void roi_align3d_backward_kernel_impl(
         (sampling_ratio > 0) ? sampling_ratio : ceil(roi_width / pooled_width);
 
     // We do average (integral) pooling inside a bin
-    const T count = roi_bin_grid_h * roi_bin_grid_w * roi_bin_grid_d; // e.g. = 4
+    const T count =
+        roi_bin_grid_h * roi_bin_grid_w * roi_bin_grid_d; // e.g. = 4
 
-    for (int iz = 0; iz < roi_bin_grid_d; iz++){
-       const T z = roi_start_d + pd * bin_size_d +
-              static_cast<T>(iz + .5f) * bin_size_d /
-                  static_cast<T>(roi_bin_grid_d);
+    for (int iz = 0; iz < roi_bin_grid_d; iz++) {
+      const T z = roi_start_d + pd * bin_size_d +
+          static_cast<T>(iz + .5f) * bin_size_d /
+              static_cast<T>(roi_bin_grid_d);
       for (int iy = 0; iy < roi_bin_grid_h; iy++) {
         const T y = roi_start_h + ph * bin_size_h +
             static_cast<T>(iy + .5f) * bin_size_h /
@@ -310,9 +322,9 @@ void roi_align3d_backward_kernel_impl(
               w2,
               w3,
               w4,
-              w5, 
-              w6, 
-              w7, 
+              w5,
+              w6,
+              w7,
               w8,
               x_low,
               x_high,
@@ -331,20 +343,37 @@ void roi_align3d_backward_kernel_impl(
           T g7 = grad_output_this_bin * w7 / count;
           T g8 = grad_output_this_bin * w8 / count;
 
-          if (x_low >= 0 && x_high >= 0 && y_low >= 0 && y_high >= 0 && z_low >= 0 && z_high >= 0) {
+          if (x_low >= 0 && x_high >= 0 && y_low >= 0 && y_high >= 0 &&
+              z_low >= 0 && z_high >= 0) {
             // atomic add is not needed for now since it is single threaded
-            add(offset_grad_input + z_low * height * width + y_low * width + x_low, static_cast<T>(g1));
-            add(offset_grad_input + z_low * height * width + y_low * width + x_high, static_cast<T>(g2));
-            add(offset_grad_input + z_low * height * width + y_high * width + x_low, static_cast<T>(g3));
-            add(offset_grad_input + z_low * height * width + y_high * width + x_high, static_cast<T>(g4));
-            add(offset_grad_input + z_high * height * width + y_low * width + x_low, static_cast<T>(g5));
-            add(offset_grad_input + z_high * height * width + y_low * width + x_high, static_cast<T>(g6));
-            add(offset_grad_input + z_high * height * width + y_high * width + x_low, static_cast<T>(g7));
-            add(offset_grad_input + z_high * height * width + y_high * width + x_high, static_cast<T>(g8));
+            add(offset_grad_input + z_low * height * width + y_low * width +
+                    x_low,
+                static_cast<T>(g1));
+            add(offset_grad_input + z_low * height * width + y_low * width +
+                    x_high,
+                static_cast<T>(g2));
+            add(offset_grad_input + z_low * height * width + y_high * width +
+                    x_low,
+                static_cast<T>(g3));
+            add(offset_grad_input + z_low * height * width + y_high * width +
+                    x_high,
+                static_cast<T>(g4));
+            add(offset_grad_input + z_high * height * width + y_low * width +
+                    x_low,
+                static_cast<T>(g5));
+            add(offset_grad_input + z_high * height * width + y_low * width +
+                    x_high,
+                static_cast<T>(g6));
+            add(offset_grad_input + z_high * height * width + y_high * width +
+                    x_low,
+                static_cast<T>(g7));
+            add(offset_grad_input + z_high * height * width + y_high * width +
+                    x_high,
+                static_cast<T>(g8));
           } // if
         } // ix
       } // iy
-    } //iz
+    } // iz
   } // for
 }
 
@@ -373,7 +402,8 @@ at::Tensor roi_align3d_forward_kernel(
   auto width = input.size(4);
 
   at::Tensor output = at::zeros(
-      {num_rois, channels, pooled_depth, pooled_height, pooled_width}, input.options());
+      {num_rois, channels, pooled_depth, pooled_height, pooled_width},
+      input.options());
 
   if (output.numel() == 0)
     return output;
