@@ -115,11 +115,11 @@ __global__ void roi_align3d_forward_kernel_impl(
     // Do not using rounding; this implementation detail is critical
     T offset = aligned ? (T)0.5 : (T)0.0;
     T roi_start_d = offset_rois[1] * spatial_scale - offset;
-    T roi_start_w = offset_rois[2] * spatial_scale - offset;
-    T roi_start_h = offset_rois[3] * spatial_scale - offset;
+    T roi_start_h = offset_rois[2] * spatial_scale - offset;
+    T roi_start_w = offset_rois[3] * spatial_scale - offset;
     T roi_end_d = offset_rois[4] * spatial_scale - offset;
-    T roi_end_w = offset_rois[5] * spatial_scale - offset;
-    T roi_end_h = offset_rois[6] * spatial_scale - offset;
+    T roi_end_h = offset_rois[5] * spatial_scale - offset;
+    T roi_end_w = offset_rois[6] * spatial_scale - offset;
 
     T roi_depth = roi_end_d - roi_start_d;
     T roi_width = roi_end_w - roi_start_w;
@@ -293,11 +293,11 @@ __global__ void roi_align3d_backward_kernel_impl(
     // Do not using rounding; this implementation detail is critical
     T offset = aligned ? (T)0.5 : (T)0.0;
     T roi_start_d = offset_rois[1] * spatial_scale - offset;
-    T roi_start_w = offset_rois[2] * spatial_scale - offset;
-    T roi_start_h = offset_rois[3] * spatial_scale - offset;
+    T roi_start_h = offset_rois[2] * spatial_scale - offset;
+    T roi_start_w = offset_rois[3] * spatial_scale - offset;
     T roi_end_d = offset_rois[4] * spatial_scale - offset;
-    T roi_end_w = offset_rois[5] * spatial_scale - offset;
-    T roi_end_h = offset_rois[6] * spatial_scale - offset;
+    T roi_end_h = offset_rois[5] * spatial_scale - offset;
+    T roi_end_w = offset_rois[6] * spatial_scale - offset;
 
     T roi_depth = roi_end_d - roi_start_d;
     T roi_width = roi_end_w - roi_start_w;
