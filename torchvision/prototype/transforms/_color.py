@@ -1,16 +1,13 @@
 import collections.abc
-from typing import Any, Dict, Optional, Sequence, Tuple, TypeVar, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import PIL.Image
 import torch
 from torchvision.prototype import features
 from torchvision.prototype.transforms import functional as F, Transform
-from torchvision.transforms import functional as _F
 
 from ._transform import _RandomApplyTransform
-from ._utils import get_image_dimensions, is_simple_tensor, query_image
-
-T = TypeVar("T", features.Image, torch.Tensor, PIL.Image.Image)
+from ._utils import query_chw
 
 
 class ColorJitter(Transform):
@@ -54,9 +51,9 @@ class ColorJitter(Transform):
 
     @staticmethod
     def _generate_value(left: float, right: float) -> float:
-        return float(torch.distributions.Uniform(left, right).sample())
+        return torch.empty(1).uniform_(left, right).item()
 
-    def _get_params(self, sample: Any) -> Dict[str, Any]:
+    def _get_params(self, flat_inputs: List[Any]) -> Dict[str, Any]:
         fn_idx = torch.randperm(4)
 
         b = None if self.brightness is None else self._generate_value(self.brightness[0], self.brightness[1])
@@ -84,31 +81,9 @@ class ColorJitter(Transform):
         return output
 
 
-class _RandomChannelShuffle(Transform):
-    def _get_params(self, sample: Any) -> Dict[str, Any]:
-        image = query_image(sample)
-        num_channels, _, _ = get_image_dimensions(image)
-        return dict(permutation=torch.randperm(num_channels))
-
-    def _transform(self, inpt: Any, params: Dict[str, Any]) -> Any:
-        if not (isinstance(inpt, (features.Image, PIL.Image.Image)) or is_simple_tensor(inpt)):
-            return inpt
-
-        image = inpt
-        if isinstance(inpt, PIL.Image.Image):
-            image = _F.pil_to_tensor(image)
-
-        output = image[..., params["permutation"], :, :]
-
-        if isinstance(inpt, features.Image):
-            output = features.Image.new_like(inpt, output, color_space=features.ColorSpace.OTHER)
-        elif isinstance(inpt, PIL.Image.Image):
-            output = _F.to_pil_image(output)
-
-        return output
-
-
 class RandomPhotometricDistort(Transform):
+    _transformed_types = (features.Image, PIL.Image.Image, features.is_simple_tensor, features.Video)
+
     def __init__(
         self,
         contrast: Tuple[float, float] = (0.5, 1.5),
@@ -118,35 +93,62 @@ class RandomPhotometricDistort(Transform):
         p: float = 0.5,
     ):
         super().__init__()
-        self._brightness = ColorJitter(brightness=brightness)
-        self._contrast = ColorJitter(contrast=contrast)
-        self._hue = ColorJitter(hue=hue)
-        self._saturation = ColorJitter(saturation=saturation)
-        self._channel_shuffle = _RandomChannelShuffle()
+        self.brightness = brightness
+        self.contrast = contrast
+        self.hue = hue
+        self.saturation = saturation
         self.p = p
 
-    def _get_params(self, sample: Any) -> Dict[str, Any]:
+    def _get_params(self, flat_inputs: List[Any]) -> Dict[str, Any]:
+        num_channels, *_ = query_chw(flat_inputs)
         return dict(
             zip(
-                ["brightness", "contrast1", "saturation", "hue", "contrast2", "channel_shuffle"],
-                torch.rand(6) < self.p,
+                ["brightness", "contrast1", "saturation", "hue", "contrast2"],
+                (torch.rand(5) < self.p).tolist(),
             ),
-            contrast_before=torch.rand(()) < 0.5,
+            contrast_before=bool(torch.rand(()) < 0.5),
+            channel_permutation=torch.randperm(num_channels) if torch.rand(()) < self.p else None,
         )
 
-    def _transform(self, inpt: Any, params: Dict[str, Any]) -> Any:
+    def _permute_channels(
+        self, inpt: Union[features.ImageType, features.VideoType], permutation: torch.Tensor
+    ) -> Union[features.ImageType, features.VideoType]:
+        if isinstance(inpt, PIL.Image.Image):
+            inpt = F.pil_to_tensor(inpt)
+
+        output = inpt[..., permutation, :, :]
+
+        if isinstance(inpt, (features.Image, features.Video)):
+            output = inpt.wrap_like(inpt, output, color_space=features.ColorSpace.OTHER)  # type: ignore[arg-type]
+
+        elif isinstance(inpt, PIL.Image.Image):
+            output = F.to_image_pil(output)
+
+        return output
+
+    def _transform(
+        self, inpt: Union[features.ImageType, features.VideoType], params: Dict[str, Any]
+    ) -> Union[features.ImageType, features.VideoType]:
         if params["brightness"]:
-            inpt = self._brightness(inpt)
+            inpt = F.adjust_brightness(
+                inpt, brightness_factor=ColorJitter._generate_value(self.brightness[0], self.brightness[1])
+            )
         if params["contrast1"] and params["contrast_before"]:
-            inpt = self._contrast(inpt)
+            inpt = F.adjust_contrast(
+                inpt, contrast_factor=ColorJitter._generate_value(self.contrast[0], self.contrast[1])
+            )
         if params["saturation"]:
-            inpt = self._saturation(inpt)
-        if params["saturation"]:
-            inpt = self._saturation(inpt)
+            inpt = F.adjust_saturation(
+                inpt, saturation_factor=ColorJitter._generate_value(self.saturation[0], self.saturation[1])
+            )
+        if params["hue"]:
+            inpt = F.adjust_hue(inpt, hue_factor=ColorJitter._generate_value(self.hue[0], self.hue[1]))
         if params["contrast2"] and not params["contrast_before"]:
-            inpt = self._contrast(inpt)
-        if params["channel_shuffle"]:
-            inpt = self._channel_shuffle(inpt)
+            inpt = F.adjust_contrast(
+                inpt, contrast_factor=ColorJitter._generate_value(self.contrast[0], self.contrast[1])
+            )
+        if params["channel_permutation"] is not None:
+            inpt = self._permute_channels(inpt, permutation=params["channel_permutation"])
         return inpt
 
 

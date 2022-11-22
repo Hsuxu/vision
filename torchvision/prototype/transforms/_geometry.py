@@ -1,19 +1,31 @@
-import collections.abc
 import math
 import numbers
 import warnings
-from typing import Any, cast, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, cast, Dict, List, Optional, Sequence, Tuple, Type, Union
 
 import PIL.Image
 import torch
+from torchvision.ops.boxes import box_iou
 from torchvision.prototype import features
-from torchvision.prototype.transforms import functional as F, Transform
-from torchvision.transforms.functional import InterpolationMode, pil_to_tensor
-from torchvision.transforms.transforms import _check_sequence_input, _setup_angle, _setup_size
+from torchvision.prototype.transforms import functional as F, InterpolationMode, Transform
+from torchvision.transforms.functional import _get_perspective_coeffs
+
 from typing_extensions import Literal
 
 from ._transform import _RandomApplyTransform
-from ._utils import get_image_dimensions, has_any, is_simple_tensor, query_image
+from ._utils import (
+    _check_padding_arg,
+    _check_padding_mode_arg,
+    _check_sequence_input,
+    _setup_angle,
+    _setup_fill_arg,
+    _setup_float_or_seq,
+    _setup_size,
+    has_all,
+    has_any,
+    query_bounding_box,
+    query_spatial_size,
+)
 
 
 class RandomHorizontalFlip(_RandomApplyTransform):
@@ -36,7 +48,11 @@ class Resize(Transform):
     ) -> None:
         super().__init__()
 
-        self.size = _setup_size(size, error_msg="Please provide only two dimensions (h, w) for size.")
+        self.size = (
+            [size]
+            if isinstance(size, int)
+            else _setup_size(size, error_msg="Please provide only two dimensions (h, w) for size.")
+        )
         self.interpolation = interpolation
         self.max_size = max_size
         self.antialias = antialias
@@ -52,12 +68,12 @@ class Resize(Transform):
 
 
 class CenterCrop(Transform):
-    def __init__(self, output_size: List[int]):
+    def __init__(self, size: Union[int, Sequence[int]]):
         super().__init__()
-        self.output_size = output_size
+        self.size = _setup_size(size, error_msg="Please provide only two dimensions (h, w) for size.")
 
     def _transform(self, inpt: Any, params: Dict[str, Any]) -> Any:
-        return F.center_crop(inpt, output_size=self.output_size)
+        return F.center_crop(inpt, output_size=self.size)
 
 
 class RandomResizedCrop(Transform):
@@ -86,15 +102,13 @@ class RandomResizedCrop(Transform):
         self.interpolation = interpolation
         self.antialias = antialias
 
-    def _get_params(self, sample: Any) -> Dict[str, Any]:
-        # vfdev-5: techically, this op can work on bboxes/segm masks only inputs without image in samples
-        # What if we have multiple images/bboxes/masks of different sizes ?
-        # TODO: let's support bbox or mask in samples without image
-        image = query_image(sample)
-        _, height, width = get_image_dimensions(image)
+        self._log_ratio = torch.log(torch.tensor(self.ratio))
+
+    def _get_params(self, flat_inputs: List[Any]) -> Dict[str, Any]:
+        height, width = query_spatial_size(flat_inputs)
         area = height * width
 
-        log_ratio = torch.log(torch.tensor(self.ratio))
+        log_ratio = self._log_ratio
         for _ in range(10):
             target_area = area * torch.empty(1).uniform_(self.scale[0], self.scale[1]).item()
             aspect_ratio = torch.exp(
@@ -134,144 +148,103 @@ class RandomResizedCrop(Transform):
         )
 
 
-class MultiCropResult(list):
-    """Helper class for :class:`~torchvision.prototype.transforms.BatchMultiCrop`.
-
-    Outputs of multi crop transforms such as :class:`~torchvision.prototype.transforms.FiveCrop` and
-    `:class:`~torchvision.prototype.transforms.TenCrop` should be wrapped in this in order to be batched correctly by
-    :class:`~torchvision.prototype.transforms.BatchMultiCrop`.
-    """
-
-    pass
+ImageOrVideoTypeJIT = Union[features.ImageTypeJIT, features.VideoTypeJIT]
 
 
 class FiveCrop(Transform):
+    """
+    Example:
+        >>> class BatchMultiCrop(transforms.Transform):
+        ...     def forward(self, sample: Tuple[Tuple[Union[features.Image, features.Video], ...], features.Label]):
+        ...         images_or_videos, labels = sample
+        ...         batch_size = len(images_or_videos)
+        ...         image_or_video = images_or_videos[0]
+        ...         images_or_videos = image_or_video.wrap_like(image_or_video, torch.stack(images_or_videos))
+        ...         labels = features.Label.wrap_like(labels, labels.repeat(batch_size))
+        ...         return images_or_videos, labels
+        ...
+        >>> image = features.Image(torch.rand(3, 256, 256))
+        >>> label = features.Label(0)
+        >>> transform = transforms.Compose([transforms.FiveCrop(), BatchMultiCrop()])
+        >>> images, labels = transform(image, label)
+        >>> images.shape
+        torch.Size([5, 3, 224, 224])
+        >>> labels.shape
+        torch.Size([5])
+    """
+
+    _transformed_types = (features.Image, PIL.Image.Image, features.is_simple_tensor, features.Video)
+
     def __init__(self, size: Union[int, Sequence[int]]) -> None:
         super().__init__()
         self.size = _setup_size(size, error_msg="Please provide only two dimensions (h, w) for size.")
 
-    def _transform(self, inpt: Any, params: Dict[str, Any]) -> Any:
-        if isinstance(inpt, features.Image):
-            output = F.five_crop_image_tensor(inpt, self.size)
-            return MultiCropResult(features.Image.new_like(inpt, o) for o in output)
-        elif is_simple_tensor(inpt):
-            return MultiCropResult(F.five_crop_image_tensor(inpt, self.size))
-        elif isinstance(inpt, PIL.Image.Image):
-            return MultiCropResult(F.five_crop_image_pil(inpt, self.size))
-        else:
-            return inpt
+    def _transform(
+        self, inpt: ImageOrVideoTypeJIT, params: Dict[str, Any]
+    ) -> Tuple[ImageOrVideoTypeJIT, ImageOrVideoTypeJIT, ImageOrVideoTypeJIT, ImageOrVideoTypeJIT, ImageOrVideoTypeJIT]:
+        return F.five_crop(inpt, self.size)
 
-    def forward(self, *inputs: Any) -> Any:
-        sample = inputs if len(inputs) > 1 else inputs[0]
-        if has_any(sample, features.BoundingBox, features.SegmentationMask):
-            raise TypeError(f"BoundingBox'es and SegmentationMask's are not supported by {type(self).__name__}()")
-        return super().forward(sample)
+    def _check_inputs(self, flat_inputs: List[Any]) -> None:
+        if has_any(flat_inputs, features.BoundingBox, features.Mask):
+            raise TypeError(f"BoundingBox'es and Mask's are not supported by {type(self).__name__}()")
 
 
 class TenCrop(Transform):
+    """
+    See :class:`~torchvision.prototype.transforms.FiveCrop` for an example.
+    """
+
+    _transformed_types = (features.Image, PIL.Image.Image, features.is_simple_tensor, features.Video)
+
     def __init__(self, size: Union[int, Sequence[int]], vertical_flip: bool = False) -> None:
         super().__init__()
         self.size = _setup_size(size, error_msg="Please provide only two dimensions (h, w) for size.")
         self.vertical_flip = vertical_flip
 
-    def _transform(self, inpt: Any, params: Dict[str, Any]) -> Any:
-        if isinstance(inpt, features.Image):
-            output = F.ten_crop_image_tensor(inpt, self.size, vertical_flip=self.vertical_flip)
-            return MultiCropResult(features.Image.new_like(inpt, o) for o in output)
-        elif is_simple_tensor(inpt):
-            return MultiCropResult(F.ten_crop_image_tensor(inpt, self.size))
-        elif isinstance(inpt, PIL.Image.Image):
-            return MultiCropResult(F.ten_crop_image_pil(inpt, self.size))
-        else:
-            return inpt
+    def _check_inputs(self, flat_inputs: List[Any]) -> None:
+        if has_any(flat_inputs, features.BoundingBox, features.Mask):
+            raise TypeError(f"BoundingBox'es and Mask's are not supported by {type(self).__name__}()")
 
-    def forward(self, *inputs: Any) -> Any:
-        sample = inputs if len(inputs) > 1 else inputs[0]
-        if has_any(sample, features.BoundingBox, features.SegmentationMask):
-            raise TypeError(f"BoundingBox'es and SegmentationMask's are not supported by {type(self).__name__}()")
-        return super().forward(sample)
-
-
-class BatchMultiCrop(Transform):
-    def forward(self, *inputs: Any) -> Any:
-        # This is basically the functionality of `torchvision.prototype.utils._internal.apply_recursively` with one
-        # significant difference:
-        # Since we need multiple images to batch them together, we need to explicitly exclude `MultiCropResult` from
-        # the sequence case.
-        def apply_recursively(obj: Any) -> Any:
-            if isinstance(obj, MultiCropResult):
-                crops = obj
-                if isinstance(obj[0], PIL.Image.Image):
-                    crops = [pil_to_tensor(crop) for crop in crops]  # type: ignore[assignment]
-
-                batch = torch.stack(crops)
-
-                if isinstance(obj[0], features.Image):
-                    batch = features.Image.new_like(obj[0], batch)
-
-                return batch
-            elif isinstance(obj, collections.abc.Sequence) and not isinstance(obj, str):
-                return [apply_recursively(item) for item in obj]
-            elif isinstance(obj, collections.abc.Mapping):
-                return {key: apply_recursively(item) for key, item in obj.items()}
-            else:
-                return obj
-
-        return apply_recursively(inputs if len(inputs) > 1 else inputs[0])
-
-
-def _check_fill_arg(fill: Union[int, float, Sequence[int], Sequence[float]]) -> None:
-    if not isinstance(fill, (numbers.Number, tuple, list)):
-        raise TypeError("Got inappropriate fill arg")
-
-
-def _check_padding_arg(padding: Union[int, Sequence[int]]) -> None:
-    if not isinstance(padding, (numbers.Number, tuple, list)):
-        raise TypeError("Got inappropriate padding arg")
-
-    if isinstance(padding, (tuple, list)) and len(padding) not in [1, 2, 4]:
-        raise ValueError(f"Padding must be an int or a 1, 2, or 4 element tuple, not a {len(padding)} element tuple")
-
-
-# TODO: let's use torchvision._utils.StrEnum to have the best of both worlds (strings and enums)
-# https://github.com/pytorch/vision/issues/6250
-def _check_padding_mode_arg(padding_mode: Literal["constant", "edge", "reflect", "symmetric"]) -> None:
-    if padding_mode not in ["constant", "edge", "reflect", "symmetric"]:
-        raise ValueError("Padding mode should be either constant, edge, reflect or symmetric")
+    def _transform(
+        self, inpt: Union[features.ImageType, features.VideoType], params: Dict[str, Any]
+    ) -> Union[List[features.ImageTypeJIT], List[features.VideoTypeJIT]]:
+        return F.ten_crop(inpt, self.size, vertical_flip=self.vertical_flip)
 
 
 class Pad(Transform):
     def __init__(
         self,
         padding: Union[int, Sequence[int]],
-        fill: Union[int, float, Sequence[int], Sequence[float]] = 0,
+        fill: Union[features.FillType, Dict[Type, features.FillType]] = 0,
         padding_mode: Literal["constant", "edge", "reflect", "symmetric"] = "constant",
     ) -> None:
         super().__init__()
 
         _check_padding_arg(padding)
-        _check_fill_arg(fill)
         _check_padding_mode_arg(padding_mode)
 
+        # This cast does Sequence[int] -> List[int] and is required to make mypy happy
+        if not isinstance(padding, int):
+            padding = list(padding)
         self.padding = padding
-        self.fill = fill
+        self.fill = _setup_fill_arg(fill)
         self.padding_mode = padding_mode
 
     def _transform(self, inpt: Any, params: Dict[str, Any]) -> Any:
-        return F.pad(inpt, padding=self.padding, fill=self.fill, padding_mode=self.padding_mode)
+        fill = self.fill[type(inpt)]
+        return F.pad(inpt, padding=self.padding, fill=fill, padding_mode=self.padding_mode)
 
 
 class RandomZoomOut(_RandomApplyTransform):
     def __init__(
         self,
-        fill: Union[int, float, Sequence[int], Sequence[float]] = 0,
+        fill: Union[features.FillType, Dict[Type, features.FillType]] = 0,
         side_range: Sequence[float] = (1.0, 4.0),
         p: float = 0.5,
     ) -> None:
         super().__init__(p=p)
 
-        _check_fill_arg(fill)
-        self.fill = fill
+        self.fill = _setup_fill_arg(fill)
 
         _check_sequence_input(side_range, "side_range", req_sizes=(2,))
 
@@ -279,9 +252,8 @@ class RandomZoomOut(_RandomApplyTransform):
         if side_range[0] < 1.0 or side_range[0] > side_range[1]:
             raise ValueError(f"Invalid canvas side range provided {side_range}.")
 
-    def _get_params(self, sample: Any) -> Dict[str, Any]:
-        image = query_image(sample)
-        orig_c, orig_h, orig_w = get_image_dimensions(image)
+    def _get_params(self, flat_inputs: List[Any]) -> Dict[str, Any]:
+        orig_h, orig_w = query_spatial_size(flat_inputs)
 
         r = self.side_range[0] + torch.rand(1) * (self.side_range[1] - self.side_range[0])
         canvas_width = int(orig_w * r)
@@ -294,15 +266,11 @@ class RandomZoomOut(_RandomApplyTransform):
         bottom = canvas_height - (top + orig_h)
         padding = [left, top, right, bottom]
 
-        # vfdev-5: Can we put that into pad_image_tensor ?
-        fill = self.fill
-        if not isinstance(fill, collections.abc.Sequence):
-            fill = [fill] * orig_c
-
-        return dict(padding=padding, fill=fill)
+        return dict(padding=padding)
 
     def _transform(self, inpt: Any, params: Dict[str, Any]) -> Any:
-        return F.pad(inpt, **params)
+        fill = self.fill[type(inpt)]
+        return F.pad(inpt, **params, fill=fill)
 
 
 class RandomRotation(Transform):
@@ -311,7 +279,7 @@ class RandomRotation(Transform):
         degrees: Union[numbers.Number, Sequence],
         interpolation: InterpolationMode = InterpolationMode.NEAREST,
         expand: bool = False,
-        fill: Union[int, float, Sequence[int], Sequence[float]] = 0,
+        fill: Union[features.FillType, Dict[Type, features.FillType]] = 0,
         center: Optional[List[float]] = None,
     ) -> None:
         super().__init__()
@@ -319,27 +287,26 @@ class RandomRotation(Transform):
         self.interpolation = interpolation
         self.expand = expand
 
-        _check_fill_arg(fill)
-
-        self.fill = fill
+        self.fill = _setup_fill_arg(fill)
 
         if center is not None:
             _check_sequence_input(center, "center", req_sizes=(2,))
 
         self.center = center
 
-    def _get_params(self, sample: Any) -> Dict[str, Any]:
-        angle = float(torch.empty(1).uniform_(float(self.degrees[0]), float(self.degrees[1])).item())
+    def _get_params(self, flat_inputs: List[Any]) -> Dict[str, Any]:
+        angle = torch.empty(1).uniform_(self.degrees[0], self.degrees[1]).item()
         return dict(angle=angle)
 
     def _transform(self, inpt: Any, params: Dict[str, Any]) -> Any:
+        fill = self.fill[type(inpt)]
         return F.rotate(
             inpt,
             **params,
             interpolation=self.interpolation,
             expand=self.expand,
-            fill=self.fill,
             center=self.center,
+            fill=fill,
         )
 
 
@@ -349,9 +316,9 @@ class RandomAffine(Transform):
         degrees: Union[numbers.Number, Sequence],
         translate: Optional[Sequence[float]] = None,
         scale: Optional[Sequence[float]] = None,
-        shear: Optional[Union[float, Sequence[float]]] = None,
+        shear: Optional[Union[int, float, Sequence[float]]] = None,
         interpolation: InterpolationMode = InterpolationMode.NEAREST,
-        fill: Union[int, float, Sequence[int], Sequence[float]] = 0,
+        fill: Union[features.FillType, Dict[Type, features.FillType]] = 0,
         center: Optional[List[float]] = None,
     ) -> None:
         super().__init__()
@@ -375,53 +342,47 @@ class RandomAffine(Transform):
             self.shear = shear
 
         self.interpolation = interpolation
-
-        _check_fill_arg(fill)
-
-        self.fill = fill
+        self.fill = _setup_fill_arg(fill)
 
         if center is not None:
             _check_sequence_input(center, "center", req_sizes=(2,))
 
         self.center = center
 
-    def _get_params(self, sample: Any) -> Dict[str, Any]:
+    def _get_params(self, flat_inputs: List[Any]) -> Dict[str, Any]:
+        height, width = query_spatial_size(flat_inputs)
 
-        # Get image size
-        # TODO: make it work with bboxes and segm masks
-        image = query_image(sample)
-        _, height, width = get_image_dimensions(image)
-
-        angle = float(torch.empty(1).uniform_(float(self.degrees[0]), float(self.degrees[1])).item())
+        angle = torch.empty(1).uniform_(self.degrees[0], self.degrees[1]).item()
         if self.translate is not None:
             max_dx = float(self.translate[0] * width)
             max_dy = float(self.translate[1] * height)
             tx = int(round(torch.empty(1).uniform_(-max_dx, max_dx).item()))
             ty = int(round(torch.empty(1).uniform_(-max_dy, max_dy).item()))
-            translations = (tx, ty)
+            translate = (tx, ty)
         else:
-            translations = (0, 0)
+            translate = (0, 0)
 
         if self.scale is not None:
-            scale = float(torch.empty(1).uniform_(self.scale[0], self.scale[1]).item())
+            scale = torch.empty(1).uniform_(self.scale[0], self.scale[1]).item()
         else:
             scale = 1.0
 
         shear_x = shear_y = 0.0
         if self.shear is not None:
-            shear_x = float(torch.empty(1).uniform_(self.shear[0], self.shear[1]).item())
+            shear_x = torch.empty(1).uniform_(self.shear[0], self.shear[1]).item()
             if len(self.shear) == 4:
-                shear_y = float(torch.empty(1).uniform_(self.shear[2], self.shear[3]).item())
+                shear_y = torch.empty(1).uniform_(self.shear[2], self.shear[3]).item()
 
         shear = (shear_x, shear_y)
-        return dict(angle=angle, translations=translations, scale=scale, shear=shear)
+        return dict(angle=angle, translate=translate, scale=scale, shear=shear)
 
     def _transform(self, inpt: Any, params: Dict[str, Any]) -> Any:
+        fill = self.fill[type(inpt)]
         return F.affine(
             inpt,
             **params,
             interpolation=self.interpolation,
-            fill=self.fill,
+            fill=fill,
             center=self.center,
         )
 
@@ -432,146 +393,149 @@ class RandomCrop(Transform):
         size: Union[int, Sequence[int]],
         padding: Optional[Union[int, Sequence[int]]] = None,
         pad_if_needed: bool = False,
-        fill: Union[int, float, Sequence[int], Sequence[float]] = 0,
+        fill: Union[features.FillType, Dict[Type, features.FillType]] = 0,
         padding_mode: Literal["constant", "edge", "reflect", "symmetric"] = "constant",
     ) -> None:
         super().__init__()
 
         self.size = _setup_size(size, error_msg="Please provide only two dimensions (h, w) for size.")
 
-        self.padding = padding
+        if pad_if_needed or padding is not None:
+            if padding is not None:
+                _check_padding_arg(padding)
+            _check_padding_mode_arg(padding_mode)
+
+        self.padding = F._geometry._parse_pad_padding(padding) if padding else None  # type: ignore[arg-type]
         self.pad_if_needed = pad_if_needed
-        self.fill = fill
+        self.fill = _setup_fill_arg(fill)
         self.padding_mode = padding_mode
 
-        self._pad_op = None
+    def _get_params(self, flat_inputs: List[Any]) -> Dict[str, Any]:
+        padded_height, padded_width = query_spatial_size(flat_inputs)
+
         if self.padding is not None:
-            self._pad_op = Pad(self.padding, fill=self.fill, padding_mode=self.padding_mode)
+            pad_left, pad_right, pad_top, pad_bottom = self.padding
+            padded_height += pad_top + pad_bottom
+            padded_width += pad_left + pad_right
+        else:
+            pad_left = pad_right = pad_top = pad_bottom = 0
+
+        cropped_height, cropped_width = self.size
 
         if self.pad_if_needed:
-            self._pad_op = Pad(0, fill=self.fill, padding_mode=self.padding_mode)
+            if padded_height < cropped_height:
+                diff = cropped_height - padded_height
 
-    def _get_params(self, sample: Any) -> Dict[str, Any]:
-        image = query_image(sample)
-        _, height, width = get_image_dimensions(image)
-        output_height, output_width = self.size
+                pad_top += diff
+                pad_bottom += diff
+                padded_height += 2 * diff
 
-        if height + 1 < output_height or width + 1 < output_width:
+            if padded_width < cropped_width:
+                diff = cropped_width - padded_width
+
+                pad_left += diff
+                pad_right += diff
+                padded_width += 2 * diff
+
+        if padded_height < cropped_height or padded_width < cropped_width:
             raise ValueError(
-                f"Required crop size {(output_height, output_width)} is larger then input image size {(height, width)}"
+                f"Required crop size {(cropped_height, cropped_width)} is larger than "
+                f"{'padded ' if self.padding is not None else ''}input image size {(padded_height, padded_width)}."
             )
 
-        if width == output_width and height == output_height:
-            return dict(top=0, left=0, height=height, width=width)
+        # We need a different order here than we have in self.padding since this padding will be parsed again in `F.pad`
+        padding = [pad_left, pad_top, pad_right, pad_bottom]
+        needs_pad = any(padding)
 
-        top = torch.randint(0, height - output_height + 1, size=(1,)).item()
-        left = torch.randint(0, width - output_width + 1, size=(1,)).item()
-        return dict(top=top, left=left, height=output_height, width=output_width)
+        needs_vert_crop, top = (
+            (True, int(torch.randint(0, padded_height - cropped_height + 1, size=())))
+            if padded_height > cropped_height
+            else (False, 0)
+        )
+        needs_horz_crop, left = (
+            (True, int(torch.randint(0, padded_width - cropped_width + 1, size=())))
+            if padded_width > cropped_width
+            else (False, 0)
+        )
+
+        return dict(
+            needs_crop=needs_vert_crop or needs_horz_crop,
+            top=top,
+            left=left,
+            height=cropped_height,
+            width=cropped_width,
+            needs_pad=needs_pad,
+            padding=padding,
+        )
 
     def _transform(self, inpt: Any, params: Dict[str, Any]) -> Any:
-        return F.crop(inpt, **params)
+        if params["needs_pad"]:
+            fill = self.fill[type(inpt)]
+            inpt = F.pad(inpt, padding=params["padding"], fill=fill, padding_mode=self.padding_mode)
 
-    def forward(self, *inputs: Any) -> Any:
-        sample = inputs if len(inputs) > 1 else inputs[0]
+        if params["needs_crop"]:
+            inpt = F.crop(inpt, top=params["top"], left=params["left"], height=params["height"], width=params["width"])
 
-        if self._pad_op is not None:
-            sample = self._pad_op(sample)
-
-        image = query_image(sample)
-        _, height, width = get_image_dimensions(image)
-
-        if self.pad_if_needed:
-            # This check is to explicitly ensure that self._pad_op is defined
-            if self._pad_op is None:
-                raise RuntimeError(
-                    "Internal error, self._pad_op is None. "
-                    "Please, fill an issue about that on https://github.com/pytorch/vision/issues"
-                )
-
-            # pad the width if needed
-            if width < self.size[1]:
-                self._pad_op.padding = [self.size[1] - width, 0]
-                sample = self._pad_op(sample)
-            # pad the height if needed
-            if height < self.size[0]:
-                self._pad_op.padding = [0, self.size[0] - height]
-                sample = self._pad_op(sample)
-
-        return super().forward(sample)
+        return inpt
 
 
 class RandomPerspective(_RandomApplyTransform):
     def __init__(
         self,
-        distortion_scale: float,
-        fill: Union[int, float, Sequence[int], Sequence[float]] = 0,
+        distortion_scale: float = 0.5,
+        fill: Union[features.FillType, Dict[Type, features.FillType]] = 0,
         interpolation: InterpolationMode = InterpolationMode.BILINEAR,
         p: float = 0.5,
     ) -> None:
         super().__init__(p=p)
 
-        _check_fill_arg(fill)
         if not (0 <= distortion_scale <= 1):
             raise ValueError("Argument distortion_scale value should be between 0 and 1")
 
         self.distortion_scale = distortion_scale
         self.interpolation = interpolation
-        self.fill = fill
+        self.fill = _setup_fill_arg(fill)
 
-    def _get_params(self, sample: Any) -> Dict[str, Any]:
-        # Get image size
-        # TODO: make it work with bboxes and segm masks
-        image = query_image(sample)
-        _, height, width = get_image_dimensions(image)
+    def _get_params(self, flat_inputs: List[Any]) -> Dict[str, Any]:
+        height, width = query_spatial_size(flat_inputs)
 
         distortion_scale = self.distortion_scale
 
         half_height = height // 2
         half_width = width // 2
+        bound_height = int(distortion_scale * half_height) + 1
+        bound_width = int(distortion_scale * half_width) + 1
         topleft = [
-            int(torch.randint(0, int(distortion_scale * half_width) + 1, size=(1,)).item()),
-            int(torch.randint(0, int(distortion_scale * half_height) + 1, size=(1,)).item()),
+            int(torch.randint(0, bound_width, size=(1,))),
+            int(torch.randint(0, bound_height, size=(1,))),
         ]
         topright = [
-            int(torch.randint(width - int(distortion_scale * half_width) - 1, width, size=(1,)).item()),
-            int(torch.randint(0, int(distortion_scale * half_height) + 1, size=(1,)).item()),
+            int(torch.randint(width - bound_width, width, size=(1,))),
+            int(torch.randint(0, bound_height, size=(1,))),
         ]
         botright = [
-            int(torch.randint(width - int(distortion_scale * half_width) - 1, width, size=(1,)).item()),
-            int(torch.randint(height - int(distortion_scale * half_height) - 1, height, size=(1,)).item()),
+            int(torch.randint(width - bound_width, width, size=(1,))),
+            int(torch.randint(height - bound_height, height, size=(1,))),
         ]
         botleft = [
-            int(torch.randint(0, int(distortion_scale * half_width) + 1, size=(1,)).item()),
-            int(torch.randint(height - int(distortion_scale * half_height) - 1, height, size=(1,)).item()),
+            int(torch.randint(0, bound_width, size=(1,))),
+            int(torch.randint(height - bound_height, height, size=(1,))),
         ]
         startpoints = [[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]]
         endpoints = [topleft, topright, botright, botleft]
-        return dict(startpoints=startpoints, endpoints=endpoints)
+        perspective_coeffs = _get_perspective_coeffs(startpoints, endpoints)
+        return dict(coefficients=perspective_coeffs)
 
     def _transform(self, inpt: Any, params: Dict[str, Any]) -> Any:
+        fill = self.fill[type(inpt)]
         return F.perspective(
             inpt,
-            **params,
-            fill=self.fill,
+            None,
+            None,
+            fill=fill,
             interpolation=self.interpolation,
+            **params,
         )
-
-
-def _setup_float_or_seq(arg: Union[float, Sequence[float]], name: str, req_size: int = 2) -> Sequence[float]:
-    if not isinstance(arg, (float, Sequence)):
-        raise TypeError(f"{name} should be float or a sequence of floats. Got {type(arg)}")
-    if isinstance(arg, Sequence) and len(arg) != req_size:
-        raise ValueError(f"If {name} is a sequence its length should be one of {req_size}. Got {len(arg)}")
-    if isinstance(arg, Sequence):
-        for element in arg:
-            if not isinstance(element, float):
-                raise ValueError(f"{name} should be a sequence of floats. Got {type(element)}")
-
-    if isinstance(arg, float):
-        arg = [float(arg), float(arg)]
-    if isinstance(arg, (list, tuple)) and len(arg) == 1:
-        arg = [arg[0], arg[0]]
-    return arg
 
 
 class ElasticTransform(Transform):
@@ -579,23 +543,18 @@ class ElasticTransform(Transform):
         self,
         alpha: Union[float, Sequence[float]] = 50.0,
         sigma: Union[float, Sequence[float]] = 5.0,
-        fill: Union[int, float, Sequence[int], Sequence[float]] = 0,
+        fill: Union[features.FillType, Dict[Type, features.FillType]] = 0,
         interpolation: InterpolationMode = InterpolationMode.BILINEAR,
     ) -> None:
         super().__init__()
         self.alpha = _setup_float_or_seq(alpha, "alpha", 2)
         self.sigma = _setup_float_or_seq(sigma, "sigma", 2)
 
-        _check_fill_arg(fill)
-
         self.interpolation = interpolation
-        self.fill = fill
+        self.fill = _setup_fill_arg(fill)
 
-    def _get_params(self, sample: Any) -> Dict[str, Any]:
-        # Get image size
-        # TODO: make it work with bboxes and segm masks
-        image = query_image(sample)
-        _, *size = get_image_dimensions(image)
+    def _get_params(self, flat_inputs: List[Any]) -> Dict[str, Any]:
+        size = list(query_spatial_size(flat_inputs))
 
         dx = torch.rand([1, 1] + size) * 2 - 1
         if self.sigma[0] > 0.0:
@@ -618,9 +577,306 @@ class ElasticTransform(Transform):
         return dict(displacement=displacement)
 
     def _transform(self, inpt: Any, params: Dict[str, Any]) -> Any:
+        fill = self.fill[type(inpt)]
         return F.elastic(
             inpt,
             **params,
-            fill=self.fill,
+            fill=fill,
             interpolation=self.interpolation,
         )
+
+
+class RandomIoUCrop(Transform):
+    def __init__(
+        self,
+        min_scale: float = 0.3,
+        max_scale: float = 1.0,
+        min_aspect_ratio: float = 0.5,
+        max_aspect_ratio: float = 2.0,
+        sampler_options: Optional[List[float]] = None,
+        trials: int = 40,
+    ):
+        super().__init__()
+        # Configuration similar to https://github.com/weiliu89/caffe/blob/ssd/examples/ssd/ssd_coco.py#L89-L174
+        self.min_scale = min_scale
+        self.max_scale = max_scale
+        self.min_aspect_ratio = min_aspect_ratio
+        self.max_aspect_ratio = max_aspect_ratio
+        if sampler_options is None:
+            sampler_options = [0.0, 0.1, 0.3, 0.5, 0.7, 0.9, 1.0]
+        self.options = sampler_options
+        self.trials = trials
+
+    def _check_inputs(self, flat_inputs: List[Any]) -> None:
+        if not (
+            has_all(flat_inputs, features.BoundingBox)
+            and has_any(flat_inputs, PIL.Image.Image, features.Image, features.is_simple_tensor)
+            and has_any(flat_inputs, features.Label, features.OneHotLabel)
+        ):
+            raise TypeError(
+                f"{type(self).__name__}() requires input sample to contain Images or PIL Images, "
+                "BoundingBoxes and Labels or OneHotLabels. Sample can also contain Masks."
+            )
+
+    def _get_params(self, flat_inputs: List[Any]) -> Dict[str, Any]:
+        orig_h, orig_w = query_spatial_size(flat_inputs)
+        bboxes = query_bounding_box(flat_inputs)
+
+        while True:
+            # sample an option
+            idx = int(torch.randint(low=0, high=len(self.options), size=(1,)))
+            min_jaccard_overlap = self.options[idx]
+            if min_jaccard_overlap >= 1.0:  # a value larger than 1 encodes the leave as-is option
+                return dict()
+
+            for _ in range(self.trials):
+                # check the aspect ratio limitations
+                r = self.min_scale + (self.max_scale - self.min_scale) * torch.rand(2)
+                new_w = int(orig_w * r[0])
+                new_h = int(orig_h * r[1])
+                aspect_ratio = new_w / new_h
+                if not (self.min_aspect_ratio <= aspect_ratio <= self.max_aspect_ratio):
+                    continue
+
+                # check for 0 area crops
+                r = torch.rand(2)
+                left = int((orig_w - new_w) * r[0])
+                top = int((orig_h - new_h) * r[1])
+                right = left + new_w
+                bottom = top + new_h
+                if left == right or top == bottom:
+                    continue
+
+                # check for any valid boxes with centers within the crop area
+                xyxy_bboxes = F.convert_format_bounding_box(
+                    bboxes.as_subclass(torch.Tensor), bboxes.format, features.BoundingBoxFormat.XYXY
+                )
+                cx = 0.5 * (xyxy_bboxes[..., 0] + xyxy_bboxes[..., 2])
+                cy = 0.5 * (xyxy_bboxes[..., 1] + xyxy_bboxes[..., 3])
+                is_within_crop_area = (left < cx) & (cx < right) & (top < cy) & (cy < bottom)
+                if not is_within_crop_area.any():
+                    continue
+
+                # check at least 1 box with jaccard limitations
+                xyxy_bboxes = xyxy_bboxes[is_within_crop_area]
+                ious = box_iou(
+                    xyxy_bboxes,
+                    torch.tensor([[left, top, right, bottom]], dtype=xyxy_bboxes.dtype, device=xyxy_bboxes.device),
+                )
+                if ious.max() < min_jaccard_overlap:
+                    continue
+
+                return dict(top=top, left=left, height=new_h, width=new_w, is_within_crop_area=is_within_crop_area)
+
+    def _transform(self, inpt: Any, params: Dict[str, Any]) -> Any:
+        if len(params) < 1:
+            return inpt
+
+        is_within_crop_area = params["is_within_crop_area"]
+
+        if isinstance(inpt, (features.Label, features.OneHotLabel)):
+            return inpt.wrap_like(inpt, inpt[is_within_crop_area])  # type: ignore[arg-type]
+
+        output = F.crop(inpt, top=params["top"], left=params["left"], height=params["height"], width=params["width"])
+
+        if isinstance(output, features.BoundingBox):
+            bboxes = output[is_within_crop_area]
+            bboxes = F.clamp_bounding_box(bboxes, output.format, output.spatial_size)
+            output = features.BoundingBox.wrap_like(output, bboxes)
+        elif isinstance(output, features.Mask):
+            # apply is_within_crop_area if mask is one-hot encoded
+            masks = output[is_within_crop_area]
+            output = features.Mask.wrap_like(output, masks)
+
+        return output
+
+
+class ScaleJitter(Transform):
+    def __init__(
+        self,
+        target_size: Tuple[int, int],
+        scale_range: Tuple[float, float] = (0.1, 2.0),
+        interpolation: InterpolationMode = InterpolationMode.BILINEAR,
+        antialias: Optional[bool] = None,
+    ):
+        super().__init__()
+        self.target_size = target_size
+        self.scale_range = scale_range
+        self.interpolation = interpolation
+        self.antialias = antialias
+
+    def _get_params(self, flat_inputs: List[Any]) -> Dict[str, Any]:
+        orig_height, orig_width = query_spatial_size(flat_inputs)
+
+        scale = self.scale_range[0] + torch.rand(1) * (self.scale_range[1] - self.scale_range[0])
+        r = min(self.target_size[1] / orig_height, self.target_size[0] / orig_width) * scale
+        new_width = int(orig_width * r)
+        new_height = int(orig_height * r)
+
+        return dict(size=(new_height, new_width))
+
+    def _transform(self, inpt: Any, params: Dict[str, Any]) -> Any:
+        return F.resize(inpt, size=params["size"], interpolation=self.interpolation, antialias=self.antialias)
+
+
+class RandomShortestSize(Transform):
+    def __init__(
+        self,
+        min_size: Union[List[int], Tuple[int], int],
+        max_size: Optional[int] = None,
+        interpolation: InterpolationMode = InterpolationMode.BILINEAR,
+        antialias: Optional[bool] = None,
+    ):
+        super().__init__()
+        self.min_size = [min_size] if isinstance(min_size, int) else list(min_size)
+        self.max_size = max_size
+        self.interpolation = interpolation
+        self.antialias = antialias
+
+    def _get_params(self, flat_inputs: List[Any]) -> Dict[str, Any]:
+        orig_height, orig_width = query_spatial_size(flat_inputs)
+
+        min_size = self.min_size[int(torch.randint(len(self.min_size), ()))]
+        r = min_size / min(orig_height, orig_width)
+        if self.max_size is not None:
+            r = min(r, self.max_size / max(orig_height, orig_width))
+
+        new_width = int(orig_width * r)
+        new_height = int(orig_height * r)
+
+        return dict(size=(new_height, new_width))
+
+    def _transform(self, inpt: Any, params: Dict[str, Any]) -> Any:
+        return F.resize(inpt, size=params["size"], interpolation=self.interpolation, antialias=self.antialias)
+
+
+class FixedSizeCrop(Transform):
+    def __init__(
+        self,
+        size: Union[int, Sequence[int]],
+        fill: Union[features.FillType, Dict[Type, features.FillType]] = 0,
+        padding_mode: str = "constant",
+    ) -> None:
+        super().__init__()
+        size = tuple(_setup_size(size, error_msg="Please provide only two dimensions (h, w) for size."))
+        self.crop_height = size[0]
+        self.crop_width = size[1]
+
+        self.fill = _setup_fill_arg(fill)
+
+        self.padding_mode = padding_mode
+
+    def _check_inputs(self, flat_inputs: List[Any]) -> None:
+        if not has_any(flat_inputs, PIL.Image.Image, features.Image, features.is_simple_tensor, features.Video):
+            raise TypeError(
+                f"{type(self).__name__}() requires input sample to contain an tensor or PIL image or a Video."
+            )
+
+        if has_any(flat_inputs, features.BoundingBox) and not has_any(
+            flat_inputs, features.Label, features.OneHotLabel
+        ):
+            raise TypeError(
+                f"If a BoundingBox is contained in the input sample, "
+                f"{type(self).__name__}() also requires it to contain a Label or OneHotLabel."
+            )
+
+    def _get_params(self, flat_inputs: List[Any]) -> Dict[str, Any]:
+        height, width = query_spatial_size(flat_inputs)
+        new_height = min(height, self.crop_height)
+        new_width = min(width, self.crop_width)
+
+        needs_crop = new_height != height or new_width != width
+
+        offset_height = max(height - self.crop_height, 0)
+        offset_width = max(width - self.crop_width, 0)
+
+        r = torch.rand(1)
+        top = int(offset_height * r)
+        left = int(offset_width * r)
+
+        bounding_boxes: Optional[torch.Tensor]
+        try:
+            bounding_boxes = query_bounding_box(flat_inputs)
+        except ValueError:
+            bounding_boxes = None
+
+        if needs_crop and bounding_boxes is not None:
+            format = bounding_boxes.format
+            bounding_boxes, spatial_size = F.crop_bounding_box(
+                bounding_boxes.as_subclass(torch.Tensor),
+                format=format,
+                top=top,
+                left=left,
+                height=new_height,
+                width=new_width,
+            )
+            bounding_boxes = F.clamp_bounding_box(bounding_boxes, format=format, spatial_size=spatial_size)
+            height_and_width = F.convert_format_bounding_box(
+                bounding_boxes, old_format=format, new_format=features.BoundingBoxFormat.XYWH
+            )[..., 2:]
+            is_valid = torch.all(height_and_width > 0, dim=-1)
+        else:
+            is_valid = None
+
+        pad_bottom = max(self.crop_height - new_height, 0)
+        pad_right = max(self.crop_width - new_width, 0)
+
+        needs_pad = pad_bottom != 0 or pad_right != 0
+
+        return dict(
+            needs_crop=needs_crop,
+            top=top,
+            left=left,
+            height=new_height,
+            width=new_width,
+            is_valid=is_valid,
+            padding=[0, 0, pad_right, pad_bottom],
+            needs_pad=needs_pad,
+        )
+
+    def _transform(self, inpt: Any, params: Dict[str, Any]) -> Any:
+        if params["needs_crop"]:
+            inpt = F.crop(
+                inpt,
+                top=params["top"],
+                left=params["left"],
+                height=params["height"],
+                width=params["width"],
+            )
+
+        if params["is_valid"] is not None:
+            if isinstance(inpt, (features.Label, features.OneHotLabel, features.Mask)):
+                inpt = inpt.wrap_like(inpt, inpt[params["is_valid"]])  # type: ignore[arg-type]
+            elif isinstance(inpt, features.BoundingBox):
+                inpt = features.BoundingBox.wrap_like(
+                    inpt,
+                    F.clamp_bounding_box(inpt[params["is_valid"]], format=inpt.format, spatial_size=inpt.spatial_size),
+                )
+
+        if params["needs_pad"]:
+            fill = self.fill[type(inpt)]
+            inpt = F.pad(inpt, params["padding"], fill=fill, padding_mode=self.padding_mode)
+
+        return inpt
+
+
+class RandomResize(Transform):
+    def __init__(
+        self,
+        min_size: int,
+        max_size: int,
+        interpolation: InterpolationMode = InterpolationMode.BILINEAR,
+        antialias: Optional[bool] = None,
+    ) -> None:
+        super().__init__()
+        self.min_size = min_size
+        self.max_size = max_size
+        self.interpolation = interpolation
+        self.antialias = antialias
+
+    def _get_params(self, flat_inputs: List[Any]) -> Dict[str, Any]:
+        size = int(torch.randint(self.min_size, self.max_size, ()))
+        return dict(size=[size])
+
+    def _transform(self, inpt: Any, params: Dict[str, Any]) -> Any:
+        return F.resize(inpt, params["size"], interpolation=self.interpolation, antialias=self.antialias)

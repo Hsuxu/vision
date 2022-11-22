@@ -9,7 +9,7 @@ from torch import nn, Tensor
 
 from ..transforms._presets import ImageClassification
 from ..utils import _log_api_usage_once
-from ._api import Weights, WeightsEnum
+from ._api import register_model, Weights, WeightsEnum
 from ._meta import _IMAGENET_CATEGORIES
 from ._utils import _ovewrite_named_param, handle_legacy_interface
 
@@ -422,12 +422,15 @@ class Inception_V3_Weights(WeightsEnum):
                     "acc@5": 93.450,
                 }
             },
+            "_ops": 5.713,
+            "_weight_size": 103.903,
             "_docs": """These weights are ported from the original paper.""",
         },
     )
     DEFAULT = IMAGENET1K_V1
 
 
+@register_model()
 @handle_legacy_interface(weights=("pretrained", Inception_V3_Weights.IMAGENET1K_V1))
 def inception_v3(*, weights: Optional[Inception_V3_Weights] = None, progress: bool = True, **kwargs: Any) -> Inception3:
     """

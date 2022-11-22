@@ -19,14 +19,9 @@ else
     elif [[ ${#CU_VERSION} -eq 5 ]]; then
         CUDA_VERSION="${CU_VERSION:2:2}.${CU_VERSION:4:1}"
     fi
-    echo "Using CUDA $CUDA_VERSION as determined by CU_VERSION"
+    echo "Using CUDA $CUDA_VERSION as determined by CU_VERSION: ${CU_VERSION} "
     version="$(python -c "print('.'.join(\"${CUDA_VERSION}\".split('.')[:2]))")"
-
-    cuda_toolkit_pckg="cudatoolkit"
-    if [[ "$CU_VERSION" == cu116 ]]; then
-        cuda_toolkit_pckg="cuda"
-    fi
-    cudatoolkit="nvidia::${cuda_toolkit_pckg}=${version}"
+    cudatoolkit="pytorch-cuda=${version}"
 fi
 
 case "$(uname -s)" in

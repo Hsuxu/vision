@@ -245,6 +245,7 @@ def cifar100():
 
 
 def voc():
+    # TODO: Also test the "2007-test" key
     return itertools.chain(
         *[
             collect_download_configs(
@@ -252,7 +253,7 @@ def voc():
                 name=f"VOC, {year}",
                 file="voc",
             )
-            for year in ("2007", "2007-test", "2008", "2009", "2010", "2011", "2012")
+            for year in ("2007", "2008", "2009", "2010", "2011", "2012")
         ]
     )
 
@@ -433,7 +434,6 @@ def make_parametrize_kwargs(download_configs):
 @pytest.mark.parametrize(
     **make_parametrize_kwargs(
         itertools.chain(
-            places365(),
             caltech101(),
             caltech256(),
             cifar10(),
@@ -461,6 +461,30 @@ def make_parametrize_kwargs(download_configs):
     )
 )
 def test_url_is_accessible(url, md5):
+    """
+    If you see this test failing, find the offending dataset in the parametrization and move it to
+    ``test_url_is_not_accessible`` and link an issue detailing the problem.
+    """
+    retry(lambda: assert_url_is_accessible(url))
+
+
+@pytest.mark.parametrize(
+    **make_parametrize_kwargs(
+        itertools.chain(
+            places365(),  # https://github.com/pytorch/vision/issues/6268
+        )
+    )
+)
+@pytest.mark.xfail
+def test_url_is_not_accessible(url, md5):
+    """
+    As the name implies, this test is the 'inverse' of ``test_url_is_accessible``. Since the download servers are
+    beyond our control, some files might not be accessible for longer stretches of time. Still, we want to know if they
+    come back up, or if we need to remove the download functionality of the dataset for good.
+
+    If you see this test failing, find the offending dataset in the parametrization and move it to
+    ``test_url_is_accessible``.
+    """
     retry(lambda: assert_url_is_accessible(url))
 
 

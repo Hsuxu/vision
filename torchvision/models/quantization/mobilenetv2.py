@@ -7,7 +7,7 @@ from torchvision.models.mobilenetv2 import InvertedResidual, MobileNet_V2_Weight
 
 from ...ops.misc import Conv2dNormActivation
 from ...transforms._presets import ImageClassification
-from .._api import Weights, WeightsEnum
+from .._api import register_model, Weights, WeightsEnum
 from .._meta import _IMAGENET_CATEGORIES
 from .._utils import _ovewrite_named_param, handle_legacy_interface
 from .utils import _fuse_modules, _replace_relu, quantize_model
@@ -80,6 +80,8 @@ class MobileNet_V2_QuantizedWeights(WeightsEnum):
                     "acc@5": 90.150,
                 }
             },
+            "_ops": 0.301,
+            "_weight_size": 3.423,
             "_docs": """
                 These weights were produced by doing Quantization Aware Training (eager mode) on top of the unquantized
                 weights listed below.
@@ -89,6 +91,7 @@ class MobileNet_V2_QuantizedWeights(WeightsEnum):
     DEFAULT = IMAGENET1K_QNNPACK_V1
 
 
+@register_model(name="quantized_mobilenet_v2")
 @handle_legacy_interface(
     weights=(
         "pretrained",
